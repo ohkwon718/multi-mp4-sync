@@ -3,6 +3,7 @@ import os
 import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy
 import wave
 
 from PyQt4 import QtGui
@@ -31,6 +32,10 @@ class Window(QtGui.QDialog):
 		self.btnPlot = QtGui.QPushButton('Plot')
 		self.btnPlot.clicked.connect(self.plot)
 
+		self.btnSync = QtGui.QPushButton('Sync')
+		self.btnSync.clicked.connect(self.sync)
+		
+
 		self.btnPlay = QtGui.QPushButton('play')
 		self.btnPlay.clicked.connect(self.play)
 		
@@ -46,14 +51,12 @@ class Window(QtGui.QDialog):
 		layout.addWidget(self.toolbar)
 		layout.addWidget(self.canvas)
 		layout.addWidget(self.btnPlot)
-		layout.addWidget(self.btnLoad)
-		layout.addWidget(self.btnPlay)
-		layout.addWidget(self.btnStop)
+		layout.addWidget(self.btnSync)
+		# layout.addWidget(self.btnLoad)
+		# layout.addWidget(self.btnPlay)
+		# layout.addWidget(self.btnStop)
 		self.setLayout(layout)
-
-		self.lsFileMp4 = []
-		self.lsFileWav = []
-		self.lsDataWav = []
+		self.lsMp4 = []
 
 	def dragEnterEvent(self, event):
 		if event.mimeData().hasUrls():
@@ -65,46 +68,62 @@ class Window(QtGui.QDialog):
 		lsUrl = [unicode(u.toLocalFile()) for u in event.mimeData().urls()]
 		for url in lsUrl:
 			self.loadMp4(url)
-		
+		self.plot()
+
 	def loadMp4(self, url):
-		if url in self.lsFileMp4:
+		if url in [mp4['mp4-file'] for mp4 in self.lsMp4]:
 			return
 		strBase = os.path.basename(url)
 		strFilename, strExtension = os.path.splitext(strBase)
 		if strExtension.lower() != ".mp4":
 			return
-		strFileWav = "./wav/" + strFilename + ".wav"
-		command = "ffmpeg -y -i " + url + " -ac 1 -vn "+ strFileWav
+		strFileWav = os.path.join("wav", strFilename + ".wav")
+		command = "ffmpeg -n -i " + url + " -ac 1 -vn "+ strFileWav
 		subprocess.call(command, shell=True)
 		if os.path.isfile(strFileWav):
-
-			self.lsFileMp4.append(url)
-			self.lsFileWav.append(strFileWav)
+			wavfile = wave.open(strFileWav,'r')
+			numCh = wavfile.getnchannels()
+			wav = wavfile.readframes(-1)
+			wav = np.fromstring(wav, 'Int16')
+			wav = wav.reshape(-1, numCh)
+			wav = wav.mean(1)
+			fr = wavfile.getframerate()
+			numSignal = wav.shape[0]
+			tEnd = numSignal/fr
+			t = np.linspace(0, tEnd, num=numSignal)
+			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav-data':wav, 'time':t, 'time-end':tEnd,
+					'framerate':fr, 'name':strFilename}
+			self.lsMp4.append(mp4)
 
 	def plot(self):
 		ax = self.figure.add_subplot(111)
 		ax.clear()
-		for strFileWav in self.lsFileWav:
-			wav = wave.open(strFileWav,'r')
-			numCh = wav.getnchannels()
-			signal = wav.readframes(-1)
-			signal = np.fromstring(signal, 'Int16')
-			signal = signal.reshape(-1, numCh)
-			fr = wav.getframerate()
-			print fr
-			numSignal = signal.shape[0]
-			tEnd = numSignal/fr
-			Time = np.linspace(0, tEnd, num=numSignal)
-			
-			ax.plot(Time,signal)
+		lsLegend = []
+		for mp4 in self.lsMp4:
+			legend, = ax.plot(mp4['time'][::100],mp4['wav-data'][::100], label=mp4['name'])
+			lsLegend.append(legend)
+		ax.legend(handles=lsLegend)
+		ax.set_xlabel('t(sec)')
 		self.canvas.draw()
 
-	# def plot(self):
-	# 	data = [random.random() for i in range(10)]
-	# 	ax = self.figure.add_subplot(111)
-	# 	ax.clear()
-	# 	ax.plot(data, '*-')
-	# 	self.canvas.draw()
+	def sync(self):
+		lsTEnd = [mp4['time-end'] for mp4 in self.lsMp4]
+		tEndMax = max(lsTEnd)
+		idxBase = lsTEnd.index(tEndMax)
+		wavBase = self.lsMp4[idxBase]['wav-data']
+
+		fftBase = scipy.fft(wavBase * wavBase)
+		tBase = self.lsMp4[idxBase]['time']
+		
+		lsWav = []
+		for mp4 in self.lsMp4:
+			print '1'
+			wav = np.interp(tBase, mp4['time'], mp4['wav-data'], left=0, right=0)
+			fftWav = scipy.fft(wav * wav)
+			corr = scipy.ifft(fftBase * scipy.conj(fftWav))
+			mp4['time-shift'] = tBase[np.argmax(np.abs(corr))]
+			mp4['time'] = mp4['time'] + mp4['time-shift']
+		self.plot()
 
 	def play(self):
 		self.timer = QTimer()
@@ -144,96 +163,8 @@ if __name__ == '__main__':
 	sys.exit(app.exec_())
 
 
-# # import subprocess
-# # import matplotlib.pyplot as plt
-# # import numpy as np
-# # import wave
-# # import sys
-
-# # command = "ffmpeg -y -i ./mp4/test.mp4 -ac 1 -vn ./wav/test.wav"
-# # subprocess.call(command, shell=True)
-
-# # filename = './wav/test.wav'
-
-# # wav_file = wave.open(filename,'r')
-# # numCh = wav_file.getnchannels()
-# # #Extract Raw Audio from Wav File
-# # signal = wav_file.readframes(-1)
-# # signal = np.fromstring(signal, 'Int16')
-# # signal = signal.reshape(-1, numCh)
-
-# # #Get time from indices
-# # fr = wav_file.getframerate()
-# # numSignal = signal.shape[0]
-# # tEnd = numSignal/fr
-# # Time = np.linspace(0, tEnd, num=numSignal)
-
-# # #Plot
-# # plt.figure(1)
-# # plt.title('Signal Wave...')
-# # plt.plot(Time,signal)
-# # plt.show()	
 
 
-
-
-
-
-
-
-# # import sys
-# # from PyQt4.QtCore import *
-# # from PyQt4.QtGui import *
-
-# # class sliderdemo(QWidget):
-# #    def __init__(self, parent = None):
-# #       super(sliderdemo, self).__init__(parent)
-
-# #       layout = QVBoxLayout()
-# #       self.l1 = QLabel("Hello")
-# #       self.l1.setAlignment(Qt.AlignCenter)
-# #       layout.addWidget(self.l1)
-		
-# #       self.sl = QSlider(Qt.Horizontal)
-# #       self.sl.setMinimum(10)
-# #       self.sl.setMaximum(30)
-# #       self.sl.setValue(20)
-# #       self.sl.setTickPosition(QSlider.TicksBelow)
-# #       self.sl.setTickInterval(5)
-		
-# #       layout.addWidget(self.sl)
-# #       self.sl.valueChanged.connect(self.valuechange)
-# #       self.setLayout(layout)
-# #       self.setWindowTitle("SpinBox demo")
-
-# #    def valuechange(self):
-# #       size = self.sl.value()
-# #       self.l1.setFont(QFont("Arial",size))
-		
-# # def main():
-# #    app = QApplication(sys.argv)
-# #    ex = sliderdemo()
-# #    ex.show()
-# #    sys.exit(app.exec_())
-	
-# # if __name__ == '__main__':
-# #    main()
-
-
-
-
-
-
-# # import sys
-# # from PyQt4 import QtCore, QtGui
-# # from PyQt4.phonon import Phonon
-# # app = QtGui.QApplication(sys.argv)
-# # vp = Phonon.VideoPlayer()
-# # media = Phonon.MediaSource('./mp4/test.mp4')
-# # vp.load(media)
-# # vp.play()
-# # vp.show()
-# # sys.exit(app.exec_())
 
 
 
