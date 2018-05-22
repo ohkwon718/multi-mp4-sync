@@ -1,5 +1,6 @@
 import sys
 import os
+import copy
 import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,7 +31,7 @@ class Window(QtGui.QDialog):
 
 		# Just some button connected to `plot` method
 		self.btnPlot = QtGui.QPushButton('Plot')
-		self.btnPlot.clicked.connect(self.plot)
+		self.btnPlot.clicked.connect(self.plotOrig)
 
 		self.btnSync = QtGui.QPushButton('Sync')
 		self.btnSync.clicked.connect(self.sync)
@@ -67,8 +68,10 @@ class Window(QtGui.QDialog):
 	def dropEvent(self, event):
 		lsUrl = [unicode(u.toLocalFile()) for u in event.mimeData().urls()]
 		for url in lsUrl:
-			self.loadMp4(url)
-		self.plot()
+			mp4 = self.loadMp4(url)
+			if mp4:
+				self.lsMp4.append(mp4)
+		self.plot(self.lsMp4)
 
 	def loadMp4(self, url):
 		if url in [mp4['mp4-file'] for mp4 in self.lsMp4]:
@@ -79,7 +82,7 @@ class Window(QtGui.QDialog):
 			return
 		strFileWav = os.path.join("wav", strFilename + ".wav")
 		command = "ffmpeg -n -i " + url + " -ac 1 -vn "+ strFileWav
-		subprocess.call(command, shell=True)
+		# subprocess.call(command, shell=True)
 		if os.path.isfile(strFileWav):
 			wavfile = wave.open(strFileWav,'r')
 			numCh = wavfile.getnchannels()
@@ -87,43 +90,127 @@ class Window(QtGui.QDialog):
 			wav = np.fromstring(wav, 'Int16')
 			wav = wav.reshape(-1, numCh)
 			wav = wav.mean(1)
-			fr = wavfile.getframerate()
-			numSignal = wav.shape[0]
-			tEnd = numSignal/fr
-			t = np.linspace(0, tEnd, num=numSignal)
+			fr = float(wavfile.getframerate())
+			lenSignal = wav.shape[0]
+			tEnd = (lenSignal-1.0)/fr
+			t = np.linspace(0, tEnd, num=lenSignal)
 			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav-data':wav, 'time':t, 'time-end':tEnd,
 					'framerate':fr, 'name':strFilename}
-			self.lsMp4.append(mp4)
+			return mp4
+		return
 
-	def plot(self):
+	def plotOrig(self):
+		self.plot(self.lsMp4)
+
+	def plot(self, lsMp4):
 		ax = self.figure.add_subplot(111)
 		ax.clear()
 		lsLegend = []
-		for mp4 in self.lsMp4:
+		for mp4 in lsMp4:
 			legend, = ax.plot(mp4['time'][::100],mp4['wav-data'][::100], label=mp4['name'])
 			lsLegend.append(legend)
 		ax.legend(handles=lsLegend)
 		ax.set_xlabel('t(sec)')
 		self.canvas.draw()
 
+
 	def sync(self):
-		lsTEnd = [mp4['time-end'] for mp4 in self.lsMp4]
+		lsMp4ZP = self.zeropadding(self.lsMp4)
+		for mp4 in lsMp4ZP:
+			print mp4['wav-data'].shape
+			print mp4['time'].shape
+		self.getTimeShift(lsMp4ZP)
+		self.plot(lsMp4ZP)
+
+	def zeropadding(self, lsMp4):
+		# to avoid big prime number which lead very slow fft
+		lsMp4New = copy.deepcopy(lsMp4)
+		for mp4 in lsMp4New:
+			lenWav = mp4['time'].size
+			dec = len(str(lenWav))
+			if dec > 2:
+				lenTarget = (int(lenWav/np.power(10,dec-2))+1) * np.power(10,dec-2)
+				tEndTarget = (lenTarget-1.0)/mp4['framerate']
+				tNew = np.linspace(0, tEndTarget, num=lenTarget)
+				wavNew = np.interp(tNew, mp4['time'], mp4['wav-data'], left=0, right=0)
+				# mp4['time-padding'] = tEndTarget - mp4['time-end']
+				mp4['padding'] = lenTarget - lenWav
+				mp4['time'] = tNew
+				mp4['wav-data'] = wavNew
+				mp4['time-end'] = tEndTarget
+		return lsMp4New
+	
+	def getTimeShift(self, lsMp4):
+		lsTEnd = [mp4['time-end'] for mp4 in lsMp4]
 		tEndMax = max(lsTEnd)
 		idxBase = lsTEnd.index(tEndMax)
-		wavBase = self.lsMp4[idxBase]['wav-data']
-
+		wavBase = lsMp4[idxBase]['wav-data']
+		fsBase = lsMp4[idxBase]['framerate']
+		print 'FFT base'
+		print (wavBase * wavBase).shape
 		fftBase = scipy.fft(wavBase * wavBase)
-		tBase = self.lsMp4[idxBase]['time']
+		print 'FFT base done'
+		tBase = lsMp4[idxBase]['time']
 		
 		lsWav = []
-		for mp4 in self.lsMp4:
-			print '1'
+		for mp4 in lsMp4:
+			print 'FFT ' + mp4['name']
 			wav = np.interp(tBase, mp4['time'], mp4['wav-data'], left=0, right=0)
 			fftWav = scipy.fft(wav * wav)
 			corr = scipy.ifft(fftBase * scipy.conj(fftWav))
 			mp4['time-shift'] = tBase[np.argmax(np.abs(corr))]
-			mp4['time'] = mp4['time'] + mp4['time-shift']
-		self.plot()
+			if mp4['time-shift'] > tBase[-1]/2:
+				mp4['time-shift'] = mp4['time-shift'] - tBase.size/fsBase
+			mp4['time'] = mp4['time'] + mp4['time-shift']		
+		
+
+
+	# def sync(self):
+	# 	self.zeropadding()
+	# 	self.getTimeShift()
+		# lsTEnd = [mp4['time-end'] for mp4 in self.lsMp4]
+		# tEndMax = max(lsTEnd)
+		# idxBase = lsTEnd.index(tEndMax)
+		# idxBase = 3
+		# wavBase = self.lsMp4[idxBase]['wav-data']
+		# fsBase = self.lsMp4[idxBase]['framerate']
+		# print 'FFT base'
+		# print (wavBase * wavBase).shape
+		# fftBase = scipy.fft(wavBase * wavBase)
+		# print 'FFT base done'
+		# tBase = self.lsMp4[idxBase]['time']
+		
+		# lsWav = []
+		# for mp4 in self.lsMp4:
+		# 	print 'FFT ' + mp4['name']
+		# 	wav = np.interp(tBase, mp4['time'], mp4['wav-data'], left=0, right=0)
+		# 	fftWav = scipy.fft(wav * wav)
+		# 	corr = scipy.ifft(fftBase * scipy.conj(fftWav))
+		# 	mp4['time-shift'] = tBase[np.argmax(np.abs(corr))]
+		# 	if mp4['time-shift'] > tBase[-1]/2:
+		# 		mp4['time-shift'] = mp4['time-shift'] - tBase.size/fsBase
+		# 	print mp4['time-shift']
+		# 	mp4['time'] = mp4['time'] + mp4['time-shift']	
+		# self.plot()
+
+	# def sync(self):
+	# 	lsTEnd = [mp4['time-end'] for mp4 in self.lsMp4]
+	# 	tEndMax = max(lsTEnd)
+	# 	idxBase = lsTEnd.index(tEndMax)
+	# 	wavBase = self.lsMp4[idxBase]['wav-data']
+
+	# 	fftBase = scipy.fft(wavBase * wavBase)
+	# 	tBase = self.lsMp4[idxBase]['time']
+		
+	# 	lsWav = []
+	# 	for mp4 in self.lsMp4:
+	# 		print 'FFT ' + mp4['name']
+	# 		wav = np.interp(tBase, mp4['time'], mp4['wav-data'], left=0, right=0)
+	# 		fftWav = scipy.fft(wav * wav)
+	# 		corr = scipy.ifft(fftBase * scipy.conj(fftWav))
+	# 		mp4['time-shift'] = tBase[np.argmax(np.abs(corr))]
+	# 		mp4['time'] = mp4['time'] + mp4['time-shift']	
+	# 	self.plot()
 
 	def play(self):
 		self.timer = QTimer()
