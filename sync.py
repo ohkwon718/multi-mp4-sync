@@ -95,7 +95,7 @@ class Window(QtGui.QDialog):
 			tEnd = (lenSignal-1.0)/fr
 			t = np.linspace(0, tEnd, num=lenSignal)
 			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav-data':wav, 'time':t, 'time-end':tEnd,
-					'framerate':fr, 'name':strFilename}
+					'framerate':fr, 'name':strFilename, 'padding':0, 'sample-shift':0, 'time-shift':0.}
 			return mp4
 		return
 
@@ -113,12 +113,8 @@ class Window(QtGui.QDialog):
 		ax.set_xlabel('t(sec)')
 		self.canvas.draw()
 
-
 	def sync(self):
 		lsMp4ZP = self.zeropadding(self.lsMp4)
-		for mp4 in lsMp4ZP:
-			print mp4['wav-data'].shape
-			print mp4['time'].shape
 		self.getTimeShift(lsMp4ZP)
 		self.plot(lsMp4ZP)
 
@@ -133,7 +129,6 @@ class Window(QtGui.QDialog):
 				tEndTarget = (lenTarget-1.0)/mp4['framerate']
 				tNew = np.linspace(0, tEndTarget, num=lenTarget)
 				wavNew = np.interp(tNew, mp4['time'], mp4['wav-data'], left=0, right=0)
-				# mp4['time-padding'] = tEndTarget - mp4['time-end']
 				mp4['padding'] = lenTarget - lenWav
 				mp4['time'] = tNew
 				mp4['wav-data'] = wavNew
@@ -141,27 +136,69 @@ class Window(QtGui.QDialog):
 		return lsMp4New
 	
 	def getTimeShift(self, lsMp4):
+		# find base signal - longest one
 		lsTEnd = [mp4['time-end'] for mp4 in lsMp4]
 		tEndMax = max(lsTEnd)
 		idxBase = lsTEnd.index(tEndMax)
 		wavBase = lsMp4[idxBase]['wav-data']
-		fsBase = lsMp4[idxBase]['framerate']
+
+		# FFT squared base signal
+		# square is for highlighting peaks
 		print 'FFT base'
-		print (wavBase * wavBase).shape
 		fftBase = scipy.fft(wavBase * wavBase)
-		print 'FFT base done'
 		tBase = lsMp4[idxBase]['time']
 		
-		lsWav = []
+
+		lsTimeShift = []
+		lsSampleShift = []
 		for mp4 in lsMp4:
+			# FFT squared signal
+			# square is for highlighting peaks
 			print 'FFT ' + mp4['name']
 			wav = np.interp(tBase, mp4['time'], mp4['wav-data'], left=0, right=0)
 			fftWav = scipy.fft(wav * wav)
+			
+			# get correlation function based on FFT (conjugate of convolution)
 			corr = scipy.ifft(fftBase * scipy.conj(fftWav))
-			mp4['time-shift'] = tBase[np.argmax(np.abs(corr))]
-			if mp4['time-shift'] > tBase[-1]/2:
-				mp4['time-shift'] = mp4['time-shift'] - tBase.size/fsBase
-			mp4['time'] = mp4['time'] + mp4['time-shift']		
+
+			# peak point of correlation
+			idxPeak = np.argmax(np.abs(corr))
+			mp4['sample-shift'] = idxPeak
+
+			# for negative shift case
+			if mp4['sample-shift'] > tBase.size/2:
+				mp4['sample-shift'] = mp4['sample-shift'] - tBase.size
+			lsSampleShift.append(mp4['sample-shift'])
+		
+		# allign minimum shifts to zero
+		minSampleShift = min(lsSampleShift)
+		for mp4 in lsMp4:
+			mp4['sample-shift'] = mp4['sample-shift'] - minSampleShift
+			mp4['time-shift'] = tBase[mp4['sample-shift']]
+
+			# remove padding
+			mp4['wav-data'] = mp4['wav-data'][:-mp4['padding']]
+			mp4['time'] 	= mp4['time'][:-mp4['padding']]
+			mp4['time-end'] = mp4['time'][-1]
+			mp4['padding'] = 0
+
+			# shift time without padding
+			mp4['time'] = mp4['time'] + mp4['time-shift']
+			
+			# padding zero from 0 sec
+			lenTarget = mp4['time'].size + mp4['sample-shift']
+			tEndTarget = mp4['time-end'] + mp4['time-shift']
+			tNew = np.linspace(0, tEndTarget, num = lenTarget)
+			wavNew = np.interp(tNew, mp4['time'], mp4['wav-data'], left=0, right=0)
+
+			mp4['time'] = tNew
+			mp4['wav-data'] = wavNew
+			mp4['time-end'] = tEndTarget
+			print (tNew[1]-tNew[0])*mp4['framerate']
+				
+			
+
+
 		
 
 
