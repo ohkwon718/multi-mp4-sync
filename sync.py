@@ -17,6 +17,7 @@ from matplotlib.figure import Figure
 import random
 import cv2
 
+from util.signal import Signal
 
 
 class Window(QtGui.QDialog):
@@ -113,15 +114,9 @@ class Window(QtGui.QDialog):
 		if os.path.isfile(strFileWav):
 			wavfile = wave.open(strFileWav,'r')
 			numCh = wavfile.getnchannels()
-			wav = wavfile.readframes(-1)
-			wav = np.fromstring(wav, 'Int16')
-			wav = wav.reshape(-1, numCh)
-			wav = wav.mean(1)
+			wav = np.fromstring( wavfile.readframes(-1) , 'Int16' ).reshape(-1, numCh).mean(1)
 			fr = float(wavfile.getframerate())
-			lenSignal = wav.shape[0]
-			tEnd = (lenSignal-1.0)/fr
-			t = np.linspace(0, tEnd, num=lenSignal)
-			raw = {'wav':wav, 'time':t, 'framerate':fr, 'time-end':tEnd, 'padding':0, 'sample-shift':0, 'time-shift':0.}
+			raw = Signal(x=wav, f = fr)
 			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'raw':raw, 'name':strFilename}
 			return mp4
 		return
@@ -134,41 +129,24 @@ class Window(QtGui.QDialog):
 		key = self.keyPlot
 		if key == None:
 			return
-
 		ax = self.figure.add_subplot(111)
 		ax.clear()
 		lsLegend = []
 		for mp4 in self.lsMp4:
-			legend, = ax.plot(mp4[key]['time'][::100], mp4[key]['wav'][::100], label=mp4['name'])
+			legend, = ax.plot(mp4[key].t[::100], mp4[key].x[::100], label=mp4['name'])
 			lsLegend.append(legend)
 		ax.legend(handles=lsLegend)
 		ax.set_xlabel('t(sec)')
 		self.canvas.draw()
 
 	def sync(self):
-		self.zeropadding('raw', 'zp')
-		# self.getTimeShift(lsMp4ZP)
-		self.keyPlot = 'zp'
-		self.plot()
-
-	def zeropadding(self, keyIn, keyOut):
-		# to avoid big prime number which lead very slow fft
 		for mp4 in self.lsMp4:
-			lenWav = mp4[keyIn]['time'].size
-			dec = len(str(lenWav))
-			if dec > 2:
-				lenTarget = (int(lenWav/np.power(10,dec-2))+1) * np.power(10,dec-2)
-				tEndTarget = (lenTarget-1.0)/mp4[keyIn]['framerate']
-				tNew = np.linspace(0, tEndTarget, num=lenTarget)
-				wavNew = np.interp(tNew, mp4[keyIn]['time'], mp4[keyIn]['wav'], left=0, right=0)
-
-				mp4[keyOut] = {'wav':wavNew, 'time':tNew, 'framerate':mp4[keyIn]['framerate'], 
-						'time-end':tEndTarget, 'padding':lenTarget - lenWav, 
-						'sample-shift':mp4[keyIn]['sample-shift'], 'time-shift':mp4[keyIn]['time-shift']}
-								
-				
+			mp4['zp'] = mp4['raw'].riseUnit()
 		
-	
+		# self.getTimeShift(lsMp4ZP)
+		# self.keyPlot = 'zp'
+		self.plot()				
+			
 	# def getTimeShift(self, lsMp4):
 	# 	# find base signal - longest one
 	# 	lsTEnd = [mp4['time-end'] for mp4 in lsMp4]
