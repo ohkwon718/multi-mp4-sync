@@ -30,6 +30,26 @@ class Signal:
 		elif 'nShift' in kwargs.keys():
 			self.nShift = kwargs['nShift']
 			self.tShift = self.nShift/self.f
+		else:
+			self.nShift = 0
+			self.tShift = 0.
+
+	def removePadding(self):
+		xNew = self.x[:-self.padding]
+		tNew = self.t[:-self.padding]
+		return Signal(x=xNew, t=tNew, nShift=self.nShift)
+
+	def shiftSample(self, nShift):
+		print self.nShift
+		tShift = self.t[nShift]
+		
+		# padding zero from 0 sec
+		tNew = np.linspace(self.t[0], self.T + tShift, num = self.t.size + nShift)
+		xNew = np.interp(tNew, self.t + tShift, self.x, left=0, right=0)
+		print (tNew[1]-tNew[0])*self.f
+		return Signal(x=xNew, t=tNew, padding = self.padding, nShift=self.nShift+nShift)
+
+
 
 	def riseUnit(self):
 		dec = len(str(self.l))
@@ -37,7 +57,6 @@ class Signal:
 			lTarget = (int(self.l/np.power(10,dec-2))+1) * np.power(10,dec-2)
 			return self.setLength(lTarget)			
 		
-
 	def zeropadding(self, nPadding):
 		tTTarget = self.T + nPadding/self.f
 		tExt = np.linspace(self.T, tTTarget, num=nPadding+1)[1:]

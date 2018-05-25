@@ -140,75 +140,57 @@ class Window(QtGui.QDialog):
 		self.canvas.draw()
 
 	def sync(self):
+		# rise unit to avoid big prime number which leads very slow fft
 		for mp4 in self.lsMp4:
 			mp4['zp'] = mp4['raw'].riseUnit()
-		
-		# self.getTimeShift(lsMp4ZP)
-		# self.keyPlot = 'zp'
+		self.getTimeShift('zp','sync')
+		for mp4 in self.lsMp4:
+			mp4['sync'] = mp4['sync'].removePadding()
+		self.keyPlot = 'sync'
 		self.plot()				
 			
-	# def getTimeShift(self, lsMp4):
-	# 	# find base signal - longest one
-	# 	lsTEnd = [mp4['time-end'] for mp4 in lsMp4]
-	# 	tEndMax = max(lsTEnd)
-	# 	idxBase = lsTEnd.index(tEndMax)
-	# 	wavBase = lsMp4[idxBase]['wav-data']
+	def getTimeShift(self, keyIn, keyOut):
+		# find base signal - longest one
+		lsT = [mp4[keyIn].T for mp4 in self.lsMp4]
+		TMax = max(lsT)
+		idxBase = lsT.index(TMax)
+		signalBase = self.lsMp4[idxBase][keyIn]
+		wavBase = signalBase.x
+		tBase = signalBase.t
 
-	# 	# FFT squared base signal
-	# 	# square is for highlighting peaks
-	# 	print 'FFT base'
-	# 	fftBase = scipy.fft(wavBase * wavBase)
-	# 	tBase = lsMp4[idxBase]['time']
+		# FFT squared base signal
+		# square is for highlighting peaks
+		print 'FFT base'
+		fftBase = scipy.fft(wavBase * wavBase)
+
+		lsTimeShift = []
+		lsSampleShift = []
+		for mp4 in self.lsMp4:
+			# FFT squared signal
+			# square is for highlighting peaks
+			print 'FFT ' + mp4['name']
+			wav = np.interp(tBase, mp4[keyIn].t, mp4[keyIn].x, left=0, right=0)
+			fftWav = scipy.fft(wav * wav)
+			
+			# get correlation function based on FFT (conjugate of convolution)
+			corr = scipy.ifft(fftBase * scipy.conj(fftWav))
+
+			# peak point of correlation
+			idxPeak = np.argmax(np.abs(corr))
+			mp4['nShift'] = idxPeak
+
+			# for negative shift case
+			if mp4['nShift'] > tBase.size/2:
+				mp4['nShift'] = mp4['nShift'] - tBase.size
+			lsSampleShift.append(mp4['nShift'])
 		
-
-	# 	lsTimeShift = []
-	# 	lsSampleShift = []
-	# 	for mp4 in lsMp4:
-	# 		# FFT squared signal
-	# 		# square is for highlighting peaks
-	# 		print 'FFT ' + mp4['name']
-	# 		wav = np.interp(tBase, mp4['time'], mp4['wav-data'], left=0, right=0)
-	# 		fftWav = scipy.fft(wav * wav)
-			
-	# 		# get correlation function based on FFT (conjugate of convolution)
-	# 		corr = scipy.ifft(fftBase * scipy.conj(fftWav))
-
-	# 		# peak point of correlation
-	# 		idxPeak = np.argmax(np.abs(corr))
-	# 		mp4['sample-shift'] = idxPeak
-
-	# 		# for negative shift case
-	# 		if mp4['sample-shift'] > tBase.size/2:
-	# 			mp4['sample-shift'] = mp4['sample-shift'] - tBase.size
-	# 		lsSampleShift.append(mp4['sample-shift'])
+		# allign minimum shifts to zero
+		minSampleShift = min(lsSampleShift)
 		
-	# 	# allign minimum shifts to zero
-	# 	minSampleShift = min(lsSampleShift)
-	# 	for mp4 in lsMp4:
-	# 		mp4['sample-shift'] = mp4['sample-shift'] - minSampleShift
-	# 		mp4['time-shift'] = tBase[mp4['sample-shift']]
-
-	# 		# remove padding
-	# 		mp4['wav-data'] = mp4['wav-data'][:-mp4['padding']]
-	# 		mp4['time'] 	= mp4['time'][:-mp4['padding']]
-	# 		mp4['time-end'] = mp4['time'][-1]
-	# 		mp4['padding'] = 0
-
-	# 		# shift time without padding
-	# 		mp4['time'] = mp4['time'] + mp4['time-shift']
-			
-	# 		# padding zero from 0 sec
-	# 		lenTarget = mp4['time'].size + mp4['sample-shift']
-	# 		tEndTarget = mp4['time-end'] + mp4['time-shift']
-	# 		tNew = np.linspace(0, tEndTarget, num = lenTarget)
-	# 		wavNew = np.interp(tNew, mp4['time'], mp4['wav-data'], left=0, right=0)
-
-	# 		mp4['time'] = tNew
-	# 		mp4['wav-data'] = wavNew
-	# 		mp4['time-end'] = tEndTarget
-	# 		print (tNew[1]-tNew[0])*mp4['framerate']
-				
-			
+		for mp4 in self.lsMp4:
+			mp4['nShift'] = mp4['nShift'] - minSampleShift
+			mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
+			del mp4['nShift']
 
 	def play(self):
 		self.timer = QTimer()
