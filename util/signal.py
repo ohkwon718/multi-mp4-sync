@@ -40,13 +40,11 @@ class Signal:
 		return Signal(x=xNew, t=tNew, nShift=self.nShift)
 
 	def shiftSample(self, nShift):
-		print self.nShift
 		tShift = self.t[nShift]
 		
 		# padding zero from 0 sec
 		tNew = np.linspace(self.t[0], self.T + tShift, num = self.t.size + nShift)
 		xNew = np.interp(tNew, self.t + tShift, self.x, left=0, right=0)
-		print (tNew[1]-tNew[0])*self.f
 		return Signal(x=xNew, t=tNew, padding = self.padding, nShift=self.nShift+nShift)
 
 

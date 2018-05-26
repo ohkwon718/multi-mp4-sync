@@ -8,7 +8,7 @@ import scipy
 import wave
 
 from PyQt4 import QtGui
-from PyQt4.QtCore import QTimer
+from PyQt4.QtCore import QTimer, QEvent, Qt
 
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
@@ -46,12 +46,13 @@ class Window(QtGui.QDialog):
 		self.btnLoad = QtGui.QPushButton('Load')
 		self.btnLoad.clicked.connect(self.load)
 
-		self.btnRemove = QtGui.QPushButton('Remove')
-		self.btnRemove.clicked.connect(self.remove)
+		self.btnSegment = QtGui.QPushButton('Segment')
+		self.btnSegment.clicked.connect(self.segment)
 
 
 		self.listFile = QtGui.QListWidget()
-
+		self.listFile.installEventFilter(self)
+		
 
 		# set the layout
 		# layout = QtGui.QVBoxLayout()
@@ -60,9 +61,8 @@ class Window(QtGui.QDialog):
 		layout.addWidget(self.toolbar,0,0,1,3)
 		layout.addWidget(self.canvas,1,0,1,3)
 		layout.addWidget(self.btnSync,2,0)
-		layout.addWidget(self.btnRemove,2,1)
-		layout.addWidget(self.listFile,2,2)
-
+		layout.addWidget(self.btnSegment,3,0)
+		layout.addWidget(self.listFile,2,1,2,2)
 		
 		# layout.addWidget(self.btnLoad)
 		# layout.addWidget(self.btnPlay)
@@ -70,19 +70,21 @@ class Window(QtGui.QDialog):
 		self.setLayout(layout)
 		self.lsMp4 = []
 		
-
-	def remove(self):
-		listItems=self.listFile.selectedItems()
-		if not listItems: return        
-		for item in listItems:
-			self.listFile.takeItem(self.listFile.row(item))
-			for mp4 in self.lsMp4:
-				if mp4['name'] == item.text():
-					self.lsMp4.remove(mp4)
-					break
-		print self.lsMp4
-		self.plot()
-
+	def eventFilter(self, obj, event):
+		if event.type() == QEvent.KeyPress and obj == self.listFile:
+			if event.key() == Qt.Key_Delete:
+				listItems=self.listFile.selectedItems()
+				if not listItems: return        
+				for item in listItems:
+					self.listFile.takeItem(self.listFile.row(item))
+					for mp4 in self.lsMp4:
+						if mp4['name'] == item.text():
+							self.lsMp4.remove(mp4)
+							break
+				self.plot()			
+			return super(Window, self).eventFilter(obj, event)
+		else:
+			return super(Window, self).eventFilter(obj, event)
 
 	def dragEnterEvent(self, event):
 		if event.mimeData().hasUrls():
@@ -100,6 +102,7 @@ class Window(QtGui.QDialog):
 				self.listFile .addItem(item)
 		self.keyPlot = 'raw'	
 		self.plot()
+
 
 	def loadMp4(self, url):
 		if url in [mp4['mp4-file'] for mp4 in self.lsMp4]:
@@ -148,7 +151,8 @@ class Window(QtGui.QDialog):
 			mp4['sync'] = mp4['sync'].removePadding()
 		self.keyPlot = 'sync'
 		self.plot()				
-			
+	
+
 	def getTimeShift(self, keyIn, keyOut):
 		# find base signal - longest one
 		lsT = [mp4[keyIn].T for mp4 in self.lsMp4]
@@ -186,11 +190,35 @@ class Window(QtGui.QDialog):
 		
 		# allign minimum shifts to zero
 		minSampleShift = min(lsSampleShift)
-		
+
 		for mp4 in self.lsMp4:
 			mp4['nShift'] = mp4['nShift'] - minSampleShift
 			mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
 			del mp4['nShift']
+
+	def segment(self):
+		# find base signal - longest one
+		lsT = [mp4['sync'].T for mp4 in self.lsMp4]
+		TMax = max(lsT)
+		idxBase = lsT.index(TMax)
+		signalBase = self.lsMp4[idxBase]['sync']
+		wavBase = signalBase.x
+		tBase = signalBase.t
+
+		lsWav = []
+		for mp4 in self.lsMp4:
+			wav = np.interp(tBase, mp4['sync'].t, mp4['sync'].x, left=0, right=0)
+			lsWav.append(wav)
+		lsWav = np.array(lsWav)
+		wavMul = np.prod(lsWav, axis=0)
+		
+		ax = self.figure.add_subplot(111)
+		ax.clear()
+		lsLegend = []
+		ax.plot(tBase, wavMul, label='multiplied')
+		ax.set_xlabel('t(sec)')
+		self.canvas.draw()
+
 
 	def play(self):
 		self.timer = QTimer()
