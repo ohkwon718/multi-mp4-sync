@@ -1,8 +1,21 @@
+
+# from __future__ import print_function
+
+# import matplotlib.pyplot as plt
+# import numpy as np
+# t = np.arange(10)
+# plt.plot(t, np.sin(t))
+# print("Please click")
+# x = plt.ginput(3)	
+# print("clicked", x)
+# plt.show()
+
 import sys
 import os
 import copy
 import subprocess
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 import scipy
 import wave
@@ -46,29 +59,47 @@ class Window(QtGui.QDialog):
 		self.btnLoad = QtGui.QPushButton('Load')
 		self.btnLoad.clicked.connect(self.load)
 
-		self.btnSegment = QtGui.QPushButton('Segment')
-		self.btnSegment.clicked.connect(self.segment)
+		self.btnFuse = QtGui.QPushButton('Fuse')
+		self.btnFuse.clicked.connect(self.fuse)
 
+		self.btnClick = QtGui.QPushButton('Click')
+		self.btnClick.clicked.connect(self.click)
+
+		
+		self.edt = QtGui.QPlainTextEdit()
+		self.edt.setDisabled(True)
+		self.edt.setMaximumBlockCount(10)
+		
+			
+		
+		
 
 		self.listFile = QtGui.QListWidget()
 		self.listFile.installEventFilter(self)
+		self.listFile.setFixedWidth(100)
+		
+		
 		
 
-		# set the layout
-		# layout = QtGui.QVBoxLayout()
 		layout = QtGui.QGridLayout()
 
 		layout.addWidget(self.toolbar,0,0,1,3)
 		layout.addWidget(self.canvas,1,0,1,3)
-		layout.addWidget(self.btnSync,2,0)
-		layout.addWidget(self.btnSegment,3,0)
-		layout.addWidget(self.listFile,2,1,2,2)
-		
+		layout.addWidget(self.btnSync,2,0,1,1)
+		layout.addWidget(self.btnFuse,3,0,1,1)
+		layout.addWidget(self.btnClick,4,0,1,1)
+		layout.addWidget(self.listFile,2,1,3,1)
+		layout.addWidget(self.edt,2,2,3,1)
+
+
 		# layout.addWidget(self.btnLoad)
 		# layout.addWidget(self.btnPlay)
 		# layout.addWidget(self.btnStop)
 		self.setLayout(layout)
 		self.lsMp4 = []
+		self.bClick = False
+		self.lsSplitPosition = []
+		self.ax = self.figure.add_subplot(111)
 		
 	def eventFilter(self, obj, event):
 		if event.type() == QEvent.KeyPress and obj == self.listFile:
@@ -124,23 +155,21 @@ class Window(QtGui.QDialog):
 			return mp4
 		return
 
-	def plotOrig(self):
-		self.keyPlot = 'raw'
-		self.plot()
-
 	def plot(self):
 		key = self.keyPlot
 		if key == None:
-			return
-		ax = self.figure.add_subplot(111)
-		ax.clear()
+			return		
+		self.ax.clear()
+
 		lsLegend = []
 		for mp4 in self.lsMp4:
-			legend, = ax.plot(mp4[key].t[::100], mp4[key].x[::100], label=mp4['name'])
+			legend, = self.ax.plot(mp4[key].t[::100], mp4[key].x[::100], label=mp4['name'])
 			lsLegend.append(legend)
-		ax.legend(handles=lsLegend)
-		ax.set_xlabel('t(sec)')
+		
+		self.ax.legend(handles=lsLegend)
+		self.ax.set_xlabel('t(sec)')
 		self.canvas.draw()
+		
 
 	def sync(self):
 		# rise unit to avoid big prime number which leads very slow fft
@@ -196,7 +225,7 @@ class Window(QtGui.QDialog):
 			mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
 			del mp4['nShift']
 
-	def segment(self):
+	def fuse(self):
 		# find base signal - longest one
 		lsT = [mp4['sync'].T for mp4 in self.lsMp4]
 		TMax = max(lsT)
@@ -210,15 +239,31 @@ class Window(QtGui.QDialog):
 			wav = np.interp(tBase, mp4['sync'].t, mp4['sync'].x, left=0, right=0)
 			lsWav.append(wav)
 		lsWav = np.array(lsWav)
-		wavMul = np.prod(lsWav, axis=0)
+		wavMul = np.sum(lsWav, axis=0)
 		
-		ax = self.figure.add_subplot(111)
-		ax.clear()
+		# ax = self.figure.add_subplot(111)
+		self.ax.clear()
 		lsLegend = []
-		ax.plot(tBase, wavMul, label='multiplied')
-		ax.set_xlabel('t(sec)')
-		self.canvas.draw()
+		self.ax.plot(tBase, wavMul, label='multiplied')
 
+		self.ax.set_xlabel('t(sec)')
+		self.canvas.draw()
+		self.bClick = True
+		self.plotted = np.array([mp4['sync'].t, mp4['sync'].x])
+
+	def click(self):
+		if self.bClick:
+			self.edt.appendPlainText("Click point")
+			x = self.figure.ginput(1)
+			self.edt.appendPlainText(str(x))
+
+			self.ax.set_ylim(self.ax.get_ylim()) 
+			rect = patches.Rectangle((x[0][0]-1,-40000),3,80000, facecolor='r', ec='none', zorder=10)
+			self.ax.add_patch(rect)
+			self.ax.plot(x[0][0],x[0][1],'go')
+			self.canvas.draw()
+			self.lsSplitPosition.append(x[0][0])
+			self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
 
 	def play(self):
 		self.timer = QTimer()
@@ -247,6 +292,7 @@ class Window(QtGui.QDialog):
 
 	def tick(self):
 		print 't'
+
 
 
 if __name__ == '__main__':
