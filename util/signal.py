@@ -52,7 +52,15 @@ class Signal:
 	def riseUnit(self):
 		dec = len(str(self.l))
 		if dec > 2:
-			lTarget = (int(self.l/np.power(10,dec-2))+1) * np.power(10,dec-2)
+			# lTarget = (int(self.l/np.power(10,dec-2))+1) * np.power(10,dec-2)
+			den = np.power(10,dec-2)
+			pre = int(self.l/den)
+			if pre * den != self.l:
+				pre = pre + 1
+			candidate = np.array([16,20,40,80,100])
+			preTarget = candidate[np.where(pre <= candidate)[0][0]]
+			lTarget = preTarget * den
+			print(self.l,lTarget)
 			return self.setLength(lTarget)			
 		
 	def zeropadding(self, nPadding):
@@ -61,12 +69,6 @@ class Signal:
 		tNew = np.concatenate((self.t, tExt))
 		xNew = np.interp(tNew, self.t, self.x, left=0, right=0)
 		return Signal(x=xNew, t=tNew, padding = self.padding + nPadding)
-
-		# self.t = tNew
-		# self.x = xNew
-		# self.T = self.t[-1]
-		# self.padding = self.padding + nPadding
-		# self.l = lTarget
 	
 	def setLength(self, lTarget):
 		if lTarget <= self.l:

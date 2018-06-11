@@ -37,6 +37,8 @@ class Window(QtGui.QDialog):
 	def __init__(self, parent=None):
 		super(Window, self).__init__(parent)
 		self.setWindowTitle("Multi-mp4-Sync")
+		w = 1280; h = 720
+		self.resize(w, h)
 		self.setAcceptDrops(True)
 
 		self.figure = Figure()
@@ -71,14 +73,9 @@ class Window(QtGui.QDialog):
 		self.edt.setMaximumBlockCount(10)
 		
 			
-		
-		
-
 		self.listFile = QtGui.QListWidget()
 		self.listFile.installEventFilter(self)
 		self.listFile.setFixedWidth(100)
-		
-		
 		
 
 		layout = QtGui.QGridLayout()
@@ -163,67 +160,138 @@ class Window(QtGui.QDialog):
 
 		lsLegend = []
 		for mp4 in self.lsMp4:
-			legend, = self.ax.plot(mp4[key].t[::100], mp4[key].x[::100], label=mp4['name'])
+			step = 100
+			legend, = self.ax.plot(mp4[key].t[::step], mp4[key].x[::step], label=mp4['name'])
 			lsLegend.append(legend)
 		
 		self.ax.legend(handles=lsLegend)
 		self.ax.set_xlabel('t(sec)')
 		self.canvas.draw()
-		
 
 	def sync(self):
-		# rise unit to avoid big prime number which leads very slow fft
-		for mp4 in self.lsMp4:
-			mp4['zp'] = mp4['raw'].riseUnit()
-		self.getTimeShift('zp','sync')
-		for mp4 in self.lsMp4:
-			mp4['sync'] = mp4['sync'].removePadding()
-		self.keyPlot = 'sync'
-		self.plot()				
+		self.getTimeShift('raw','sync')
+		# self.keyPlot = 'sync'
+		# self.plot()
 	
 
-	def getTimeShift(self, keyIn, keyOut):
+	def getTimeShift(self, keyIn, keyOut, nBatch = 8000000):
+	# def getTimeShift(self, keyIn, keyOut, nBatch = 4000000):
 		# find base signal - longest one
 		lsT = [mp4[keyIn].T for mp4 in self.lsMp4]
-		TMax = max(lsT)
-		idxBase = lsT.index(TMax)
+		tMax = max(lsT)
+		idxBase = lsT.index(tMax)
 		signalBase = self.lsMp4[idxBase][keyIn]
+		# print signalBase.f # 48000.0
+		
 		wavBase = signalBase.x
 		tBase = signalBase.t
-
-		# FFT squared base signal
-		# square is for highlighting peaks
-		print 'FFT base'
-		fftBase = scipy.fft(wavBase * wavBase)
-
-		lsTimeShift = []
+		nBase = tBase.size
+		print nBase
 		lsSampleShift = []
-		for mp4 in self.lsMp4:
-			# FFT squared signal
-			# square is for highlighting peaks
-			print 'FFT ' + mp4['name']
-			wav = np.interp(tBase, mp4[keyIn].t, mp4[keyIn].x, left=0, right=0)
-			fftWav = scipy.fft(wav * wav)
-			
-			# get correlation function based on FFT (conjugate of convolution)
-			corr = scipy.ifft(fftBase * scipy.conj(fftWav))
+		for idxS in range(0,nBase,nBatch):
+			idxE = min(idxS + nBatch, nBase)
+			signalBaseBatch = Signal(x=wavBase[idxS:idxE], t = tBase[idxS:idxE])
+			signalBaseBatch = signalBaseBatch.riseUnit()
+			wavBaseBatch = signalBaseBatch.x
+			tBaseBatch = signalBaseBatch.t
 
-			# peak point of correlation
-			idxPeak = np.argmax(np.abs(corr))
-			mp4['nShift'] = idxPeak
+			# FFT squared base signal
+			# square is better for highlighting peaks
 
-			# for negative shift case
-			if mp4['nShift'] > tBase.size/2:
-				mp4['nShift'] = mp4['nShift'] - tBase.size
-			lsSampleShift.append(mp4['nShift'])
+			print 'FFT base'
+			print wavBaseBatch.size
+
+			fftBaseBatch = scipy.fft(wavBaseBatch * wavBaseBatch)
 		
-		# allign minimum shifts to zero
-		minSampleShift = min(lsSampleShift)
+			lsSampleShiftBatch = []
 
-		for mp4 in self.lsMp4:
-			mp4['nShift'] = mp4['nShift'] - minSampleShift
-			mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
-			del mp4['nShift']
+			for mp4 in self.lsMp4:
+				# FFT squared signal
+				# square is for highlighting peaks
+				print 'FFT ' + mp4['name']
+				wav = np.interp(tBaseBatch, mp4[keyIn].t, mp4[keyIn].x, left=0, right=0)
+				print wav.size
+				fftWav = scipy.fft(wav * wav)
+				
+				# get correlation function based on FFT (conjugate of convolution)
+				corr = scipy.ifft(fftBaseBatch * scipy.conj(fftWav))
+
+				# peak point of correlation
+				idxPeak = np.argmax(np.abs(corr))
+				# mp4['nShift'] = idxPeak
+
+				# for negative shift case
+				if idxPeak > tBaseBatch.size/2:
+					idxPeak = idxPeak - tBaseBatch.size
+				lsSampleShiftBatch.append(idxPeak)
+			lsSampleShift.append(lsSampleShiftBatch)
+		lsSampleShift = np.array(lsSampleShift)
+		print lsSampleShift
+
+		# # allign minimum shifts to zero
+		# minSampleShift = min(lsSampleShift)
+
+		# for mp4 in self.lsMp4:
+		# 	mp4['nShift'] = mp4['nShift'] - minSampleShift
+		# 	mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
+		# 	del mp4['nShift']
+
+
+# 	def sync(self):
+# 		# rise unit to avoid big prime number which leads very slow fft
+# 		for mp4 in self.lsMp4:
+# 			mp4['zp'] = mp4['raw'].riseUnit()
+# 		self.getTimeShift('zp','sync')
+# 		for mp4 in self.lsMp4:
+# 			mp4['sync'] = mp4['sync'].removePadding()
+# 		self.keyPlot = 'sync'
+# 		self.plot()
+	
+
+# 	def getTimeShift(self, keyIn, keyOut):
+# 		# find base signal - longest one
+# 		lsT = [mp4[keyIn].T for mp4 in self.lsMp4]
+# 		TMax = max(lsT)
+# 		idxBase = lsT.index(TMax)
+# 		signalBase = self.lsMp4[idxBase][keyIn]
+# 		wavBase = signalBase.x
+# 		tBase = signalBase.t
+
+# 		# FFT squared base signal
+# 		# square is better for highlighting peaks
+# 		print 'FFT base'
+# 		print wavBase.size
+# 		fftBase = scipy.fft(wavBase * wavBase)
+# # 16000000
+# 		lsTimeShift = []
+# 		lsSampleShift = []
+# 		for mp4 in self.lsMp4:
+# 			# FFT squared signal
+# 			# square is for highlighting peaks
+# 			print 'FFT ' + mp4['name']
+# 			wav = np.interp(tBase, mp4[keyIn].t, mp4[keyIn].x, left=0, right=0)
+# 			print wav.size
+# 			fftWav = scipy.fft(wav * wav)
+			
+# 			# get correlation function based on FFT (conjugate of convolution)
+# 			corr = scipy.ifft(fftBase * scipy.conj(fftWav))
+
+# 			# peak point of correlation
+# 			idxPeak = np.argmax(np.abs(corr))
+# 			mp4['nShift'] = idxPeak
+
+# 			# for negative shift case
+# 			if mp4['nShift'] > tBase.size/2:
+# 				mp4['nShift'] = mp4['nShift'] - tBase.size
+# 			lsSampleShift.append(mp4['nShift'])
+		
+# 		# allign minimum shifts to zero
+# 		minSampleShift = min(lsSampleShift)
+
+# 		for mp4 in self.lsMp4:
+# 			mp4['nShift'] = mp4['nShift'] - minSampleShift
+# 			mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
+# 			del mp4['nShift']
 
 	def fuse(self):
 		# find base signal - longest one
@@ -258,9 +326,33 @@ class Window(QtGui.QDialog):
 			self.edt.appendPlainText(str(x))
 
 			self.ax.set_ylim(self.ax.get_ylim()) 
-			rect = patches.Rectangle((x[0][0]-1,-40000),3,80000, facecolor='r', ec='none', zorder=10)
+
+			xmin, xmax = self.ax.get_xlim()
+			ymin, ymax = self.ax.get_ylim()
+			sx, sy = self.ax.get_size_inches()
+			ax = (xmax - xmin)/sx
+			ay = (ymax - ymin)/sy
+			npA = np.array([ax,ay]).reshape(2,1)
+
+			rx = (xmax - xmin)/10
+			idxX = int(x[0][0]/self.plotted[0,-1] * self.plotted.shape[1])
+			subset = self.plotted[:,idxX-rx:idxX+rx]
+			
+			npX = np.array(x[0]).reshape(2,1)
+			diff = npA * (subset - npX)
+			dist = diff[0]*diff[0] + diff[1]*diff[1]
+			idxMin = np.argmin(dist)
+			X = subsex[:,idxMin]
+			
+			
+			# x[0][0]
+			# x[0][1]
+
+			# self.plotted
+			# rect = patches.Rectangle((x[0][0]-1,-40000),3,80000, facecolor='r', ec='none', zorder=10)
 			self.ax.add_patch(rect)
-			self.ax.plot(x[0][0],x[0][1],'go')
+			# self.ax.plot(x[0][0],x[0][1],'go')
+			self.ax.plot(X[0],X[1],'go')
 			self.canvas.draw()
 			self.lsSplitPosition.append(x[0][0])
 			self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
