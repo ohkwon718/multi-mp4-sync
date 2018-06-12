@@ -54,13 +54,11 @@ class Signal:
 		if dec > 2:
 			# lTarget = (int(self.l/np.power(10,dec-2))+1) * np.power(10,dec-2)
 			den = np.power(10,dec-2)
-			pre = int(self.l/den)
-			if pre * den != self.l:
-				pre = pre + 1
+			pre = np.ceil(self.l/den)
 			candidate = np.array([16,20,40,80,100])
 			preTarget = candidate[np.where(pre <= candidate)[0][0]]
 			lTarget = preTarget * den
-			print(self.l,lTarget)
+			
 			return self.setLength(lTarget)			
 		
 	def zeropadding(self, nPadding):

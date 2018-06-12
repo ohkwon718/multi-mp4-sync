@@ -160,7 +160,7 @@ class Window(QtGui.QDialog):
 
 		lsLegend = []
 		for mp4 in self.lsMp4:
-			step = 100
+			step = 200
 			legend, = self.ax.plot(mp4[key].t[::step], mp4[key].x[::step], label=mp4['name'])
 			lsLegend.append(legend)
 		
@@ -170,12 +170,13 @@ class Window(QtGui.QDialog):
 
 	def sync(self):
 		self.getTimeShift('raw','sync')
-		# self.keyPlot = 'sync'
-		# self.plot()
+		self.keyPlot = 'sync'
+		self.ax.clear()
+		self.plot()
+		self.edt.appendPlainText("Sync Done")
 	
 
-	def getTimeShift(self, keyIn, keyOut, nBatch = 8000000):
-	# def getTimeShift(self, keyIn, keyOut, nBatch = 4000000):
+	def getTimeShift(self, keyIn, keyOut, nBatchSize = 8000000):
 		# find base signal - longest one
 		lsT = [mp4[keyIn].T for mp4 in self.lsMp4]
 		tMax = max(lsT)
@@ -186,56 +187,53 @@ class Window(QtGui.QDialog):
 		wavBase = signalBase.x
 		tBase = signalBase.t
 		nBase = tBase.size
-		print nBase
-		lsSampleShift = []
-		for idxS in range(0,nBase,nBatch):
-			idxE = min(idxS + nBatch, nBase)
-			signalBaseBatch = Signal(x=wavBase[idxS:idxE], t = tBase[idxS:idxE])
-			signalBaseBatch = signalBaseBatch.riseUnit()
-			wavBaseBatch = signalBaseBatch.x
-			tBaseBatch = signalBaseBatch.t
-
+		
+		numBatch = np.ceil(float(nBase)/nBatchSize).astype(int)
+		numMp4 = len(self.lsMp4)
+		npCorr = np.zeros((numBatch, numMp4, nBatchSize))
+		
+		for i in range(numBatch):
+			print 'batch %d / %d'%(i,numBatch)
+			idxS = i * nBatchSize
+			idxE = min(idxS + nBatchSize, nBase)
+			wavBaseBatch = wavBase[idxS:idxE]
+			tBaseBatch = tBase[idxS:idxE]
+			
 			# FFT squared base signal
 			# square is better for highlighting peaks
 
-			print 'FFT base'
-			print wavBaseBatch.size
-
+			
+			wavBaseBatch = np.pad(wavBaseBatch, (0, nBatchSize-wavBaseBatch.size), 'constant')
+			print 'FFT base', wavBaseBatch.size
 			fftBaseBatch = scipy.fft(wavBaseBatch * wavBaseBatch)
-		
-			lsSampleShiftBatch = []
-
-			for mp4 in self.lsMp4:
+			
+			for j in range(numMp4):
+				mp4 = self.lsMp4[j]
 				# FFT squared signal
 				# square is for highlighting peaks
-				print 'FFT ' + mp4['name']
+				
 				wav = np.interp(tBaseBatch, mp4[keyIn].t, mp4[keyIn].x, left=0, right=0)
-				print wav.size
+				wav = np.pad(wav, (0, nBatchSize-wav.size), 'constant')
+				print 'FFT ' + mp4['name'], wav.size
 				fftWav = scipy.fft(wav * wav)
 				
 				# get correlation function based on FFT (conjugate of convolution)
-				corr = scipy.ifft(fftBaseBatch * scipy.conj(fftWav))
-
-				# peak point of correlation
-				idxPeak = np.argmax(np.abs(corr))
-				# mp4['nShift'] = idxPeak
-
-				# for negative shift case
-				if idxPeak > tBaseBatch.size/2:
-					idxPeak = idxPeak - tBaseBatch.size
-				lsSampleShiftBatch.append(idxPeak)
-			lsSampleShift.append(lsSampleShiftBatch)
-		lsSampleShift = np.array(lsSampleShift)
-		print lsSampleShift
-
-		# # allign minimum shifts to zero
-		# minSampleShift = min(lsSampleShift)
+				corr = np.abs(scipy.ifft(fftBaseBatch * scipy.conj(fftWav)))
+				npCorr[i,j,:] = corr/corr.max() + 1.0
+				# npCorr[i,j,:] = np.abs(scipy.ifft(fftBaseBatch * scipy.conj(fftWav)))
+				
+		
+		npCorrProd = npCorr.prod(axis=0)
+		idxPeak = np.argmax(npCorrProd, axis=1)
+		idxPeak[np.where(idxPeak > nBatchSize/2)] = idxPeak[np.where(idxPeak > nBatchSize/2)] - nBatchSize
+		
+		# allign minimum shifts to zero
+		sampleShift = idxPeak - min(idxPeak)
 
 		# for mp4 in self.lsMp4:
-		# 	mp4['nShift'] = mp4['nShift'] - minSampleShift
-		# 	mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
-		# 	del mp4['nShift']
-
+		for j in range(numMp4):
+			self.lsMp4[j][keyOut] = self.lsMp4[j][keyIn].shiftSample(sampleShift[j])
+		print 'Done'
 
 # 	def sync(self):
 # 		# rise unit to avoid big prime number which leads very slow fft
