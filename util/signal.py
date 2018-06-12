@@ -44,9 +44,9 @@ class Signal:
 		
 		# padding zero from 0 sec
 		tNew = np.linspace(self.t[0], self.T + tShift, num = self.t.size + nShift)
-		xNew = np.interp(tNew, self.t + tShift, self.x, left=0, right=0)
+		xNew = np.pad(self.x, (nShift, 0), 'constant', constant_values = 0)
+		
 		return Signal(x=xNew, t=tNew, padding = self.padding, nShift=self.nShift+nShift)
-
 
 
 	def riseUnit(self):
@@ -65,7 +65,7 @@ class Signal:
 		tTTarget = self.T + nPadding/self.f
 		tExt = np.linspace(self.T, tTTarget, num=nPadding+1)[1:]
 		tNew = np.concatenate((self.t, tExt))
-		xNew = np.interp(tNew, self.t, self.x, left=0, right=0)
+		xNew = np.pad(self.x, (0, nPadding), 'constant', constant_values = 0)
 		return Signal(x=xNew, t=tNew, padding = self.padding + nPadding)
 	
 	def setLength(self, lTarget):

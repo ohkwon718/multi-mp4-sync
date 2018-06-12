@@ -230,66 +230,11 @@ class Window(QtGui.QDialog):
 		# allign minimum shifts to zero
 		sampleShift = idxPeak - min(idxPeak)
 
-		# for mp4 in self.lsMp4:
 		for j in range(numMp4):
 			self.lsMp4[j][keyOut] = self.lsMp4[j][keyIn].shiftSample(sampleShift[j])
+
 		print 'Done'
 
-# 	def sync(self):
-# 		# rise unit to avoid big prime number which leads very slow fft
-# 		for mp4 in self.lsMp4:
-# 			mp4['zp'] = mp4['raw'].riseUnit()
-# 		self.getTimeShift('zp','sync')
-# 		for mp4 in self.lsMp4:
-# 			mp4['sync'] = mp4['sync'].removePadding()
-# 		self.keyPlot = 'sync'
-# 		self.plot()
-	
-
-# 	def getTimeShift(self, keyIn, keyOut):
-# 		# find base signal - longest one
-# 		lsT = [mp4[keyIn].T for mp4 in self.lsMp4]
-# 		TMax = max(lsT)
-# 		idxBase = lsT.index(TMax)
-# 		signalBase = self.lsMp4[idxBase][keyIn]
-# 		wavBase = signalBase.x
-# 		tBase = signalBase.t
-
-# 		# FFT squared base signal
-# 		# square is better for highlighting peaks
-# 		print 'FFT base'
-# 		print wavBase.size
-# 		fftBase = scipy.fft(wavBase * wavBase)
-# # 16000000
-# 		lsTimeShift = []
-# 		lsSampleShift = []
-# 		for mp4 in self.lsMp4:
-# 			# FFT squared signal
-# 			# square is for highlighting peaks
-# 			print 'FFT ' + mp4['name']
-# 			wav = np.interp(tBase, mp4[keyIn].t, mp4[keyIn].x, left=0, right=0)
-# 			print wav.size
-# 			fftWav = scipy.fft(wav * wav)
-			
-# 			# get correlation function based on FFT (conjugate of convolution)
-# 			corr = scipy.ifft(fftBase * scipy.conj(fftWav))
-
-# 			# peak point of correlation
-# 			idxPeak = np.argmax(np.abs(corr))
-# 			mp4['nShift'] = idxPeak
-
-# 			# for negative shift case
-# 			if mp4['nShift'] > tBase.size/2:
-# 				mp4['nShift'] = mp4['nShift'] - tBase.size
-# 			lsSampleShift.append(mp4['nShift'])
-		
-# 		# allign minimum shifts to zero
-# 		minSampleShift = min(lsSampleShift)
-
-# 		for mp4 in self.lsMp4:
-# 			mp4['nShift'] = mp4['nShift'] - minSampleShift
-# 			mp4[keyOut] = mp4[keyIn].shiftSample(mp4['nShift'])
-# 			del mp4['nShift']
 
 	def fuse(self):
 		# find base signal - longest one
