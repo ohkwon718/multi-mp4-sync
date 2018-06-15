@@ -1,15 +1,6 @@
 
 # from __future__ import print_function
 
-# import matplotlib.pyplot as plt
-# import numpy as np
-# t = np.arange(10)
-# plt.plot(t, np.sin(t))
-# print("Please click")
-# x = plt.ginput(3)	
-# print("clicked", x)
-# plt.show()
-
 import sys
 import os
 import copy
@@ -19,6 +10,8 @@ import matplotlib.patches as patches
 import numpy as np
 import scipy
 import wave
+import pyaudio
+import struct
 
 from PyQt4 import QtGui
 from PyQt4.QtCore import QTimer, QEvent, Qt
@@ -160,7 +153,7 @@ class Window(QtGui.QDialog):
 
 		lsLegend = []
 		for mp4 in self.lsMp4:
-			step = 200
+			step = 100
 			legend, = self.ax.plot(mp4[key].t[::step], mp4[key].x[::step], label=mp4['name'])
 			lsLegend.append(legend)
 		
@@ -171,7 +164,6 @@ class Window(QtGui.QDialog):
 	def sync(self):
 		self.getTimeShift('raw','sync')
 		self.keyPlot = 'sync'
-		self.ax.clear()
 		self.plot()
 		self.edt.appendPlainText("Sync Done")
 	
@@ -190,7 +182,7 @@ class Window(QtGui.QDialog):
 		
 		numBatch = np.ceil(float(nBase)/nBatchSize).astype(int)
 		numMp4 = len(self.lsMp4)
-		npCorr = np.zeros((numBatch, numMp4, nBatchSize))
+		npCorr = np.empty((numBatch, numMp4, nBatchSize))
 		
 		for i in range(numBatch):
 			print 'batch %d / %d'%(i,numBatch)
@@ -237,6 +229,8 @@ class Window(QtGui.QDialog):
 
 
 	def fuse(self):
+		import time 
+		s = time.time()
 		# find base signal - longest one
 		lsT = [mp4['sync'].T for mp4 in self.lsMp4]
 		TMax = max(lsT)
@@ -245,59 +239,83 @@ class Window(QtGui.QDialog):
 		wavBase = signalBase.x
 		tBase = signalBase.t
 
-		lsWav = []
-		for mp4 in self.lsMp4:
-			wav = np.interp(tBase, mp4['sync'].t, mp4['sync'].x, left=0, right=0)
-			lsWav.append(wav)
-		lsWav = np.array(lsWav)
-		wavMul = np.sum(lsWav, axis=0)
+		numMp4 = len(self.lsMp4)
+		nBase = tBase.size
+		npWav = np.empty((numMp4, nBase))
+		for i in range(numMp4):
+			npWav[i,:] = np.interp(tBase, self.lsMp4[i]['sync'].t, self.lsMp4[i]['sync'].x, left=0, right=0)
+		wavMul = np.sum(npWav, axis=0)
+
 		
-		# ax = self.figure.add_subplot(111)
 		self.ax.clear()
 		lsLegend = []
-		self.ax.plot(tBase, wavMul, label='multiplied')
+		self.ax.plot(tBase[::100], wavMul[::100], label='multiplied')
 
 		self.ax.set_xlabel('t(sec)')
 		self.canvas.draw()
 		self.bClick = True
 		self.plotted = np.array([mp4['sync'].t, mp4['sync'].x])
+		self.edt.appendPlainText("Fuse Done")
+		e = time.time()
+		print e - s
 
 	def click(self):
 		if self.bClick:
 			self.edt.appendPlainText("Click point")
-			x = self.figure.ginput(1)
-			self.edt.appendPlainText(str(x))
-
+			x, y = self.figure.ginput(1)[0]
+			self.edt.appendPlainText(str((x,y)))
 			self.ax.set_ylim(self.ax.get_ylim()) 
 
 			xmin, xmax = self.ax.get_xlim()
 			ymin, ymax = self.ax.get_ylim()
-			sx, sy = self.ax.get_size_inches()
+			sx, sy = self.figure.get_size_inches()
 			ax = (xmax - xmin)/sx
 			ay = (ymax - ymin)/sy
 			npA = np.array([ax,ay]).reshape(2,1)
-
-			rx = (xmax - xmin)/10
-			idxX = int(x[0][0]/self.plotted[0,-1] * self.plotted.shape[1])
+			rx = int(self.plotted.shape[1]/20)
+			idxX = int(x/self.plotted[0,-1] * self.plotted.shape[1])
 			subset = self.plotted[:,idxX-rx:idxX+rx]
 			
-			npX = np.array(x[0]).reshape(2,1)
-			diff = npA * (subset - npX)
+			npX = np.array([x,y]).reshape(2,1)
+			diff = 1.0/npA * (subset - npX)
 			dist = diff[0]*diff[0] + diff[1]*diff[1]
 			idxMin = np.argmin(dist)
-			X = subsex[:,idxMin]
-			
-			
-			# x[0][0]
-			# x[0][1]
+			X = subset[:,idxMin]
 
-			# self.plotted
-			# rect = patches.Rectangle((x[0][0]-1,-40000),3,80000, facecolor='r', ec='none', zorder=10)
+
+			rect = patches.Rectangle((X[0]-1.5,-40000),3,80000, facecolor='r', ec='none', zorder=10)
+			f = (self.plotted.shape[1] - 1)/(self.plotted[0,-1] - self.plotted[0,0])
+			print f
+
+			# p = pyaudio.PyAudio()
+			# stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
+			# play = subset[:,int(idxMin - 1.5 * f):int(idxMin + 1.5 * f)]
+			# chunk = 1024
+			# sig=play[0:chunk]
+			# inc = 0;
+			# data=0;
+			# while data != '':
+			# 	data = struct.pack("%dh"%(len(sig)), *list(sig))   
+			# 	stream.write(data)
+			# 	inc=inc+chunk
+			# 	sig=signal[inc:inc+chunk]
+
+
+
+
+
+
+
+
+     
+    
+    
+    
+
 			self.ax.add_patch(rect)
-			# self.ax.plot(x[0][0],x[0][1],'go')
-			self.ax.plot(X[0],X[1],'go')
+			# self.ax.plot(X[0],X[1],'go')
 			self.canvas.draw()
-			self.lsSplitPosition.append(x[0][0])
+			self.lsSplitPosition.append(X[0])
 			self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
 
 	def play(self):
