@@ -23,7 +23,7 @@ from matplotlib.figure import Figure
 import random
 import cv2
 
-from util.signal import Signal
+from util.signal import MySignal
 
 
 class Window(QtGui.QDialog):
@@ -42,9 +42,6 @@ class Window(QtGui.QDialog):
 		self.btnSync = QtGui.QPushButton('Sync')
 		self.btnSync.clicked.connect(self.sync)
 		
-		# self.btnSync = QtGui.QPushButton('Segmentation')
-		# self.btnSync.clicked.connect(self.Segmentation)
-
 		self.btnPlay = QtGui.QPushButton('play')
 		self.btnPlay.clicked.connect(self.play)
 		
@@ -81,12 +78,9 @@ class Window(QtGui.QDialog):
 		layout.addWidget(self.listFile,2,1,3,1)
 		layout.addWidget(self.edt,2,2,3,1)
 
-
-		# layout.addWidget(self.btnLoad)
-		# layout.addWidget(self.btnPlay)
-		# layout.addWidget(self.btnStop)
 		self.setLayout(layout)
 		self.lsMp4 = []
+		self.dictWav = {}
 		self.bClick = False
 		self.lsSplitPosition = []
 		self.ax = self.figure.add_subplot(111)
@@ -121,7 +115,7 @@ class Window(QtGui.QDialog):
 				self.lsMp4.append(mp4)
 				item = QtGui.QListWidgetItem(mp4['name'])
 				self.listFile .addItem(item)
-		self.keyPlot = 'raw'	
+		self.keyPlot = 'wav'	
 		self.plot()
 
 
@@ -140,8 +134,8 @@ class Window(QtGui.QDialog):
 			numCh = wavfile.getnchannels()
 			wav = np.fromstring( wavfile.readframes(-1) , 'Int16' ).reshape(-1, numCh).mean(1)
 			fr = float(wavfile.getframerate())
-			raw = Signal(x=wav, f = fr)
-			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'raw':raw, 'name':strFilename}
+			sigWav = MySignal(x=wav, f = fr)
+			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav':sigWav, 'name':strFilename}
 			return mp4
 		return
 
@@ -154,7 +148,7 @@ class Window(QtGui.QDialog):
 		lsLegend = []
 		for mp4 in self.lsMp4:
 			step = 100
-			legend, = self.ax.plot(mp4[key].t[::step], mp4[key].x[::step], label=mp4['name'])
+			legend, = self.ax.plot(mp4[key].getTimeAxis()[::step], mp4[key].x[::step], label=mp4['name'])
 			lsLegend.append(legend)
 		
 		self.ax.legend(handles=lsLegend)
@@ -162,130 +156,124 @@ class Window(QtGui.QDialog):
 		self.canvas.draw()
 
 	def sync(self):
-		self.getTimeShift('raw','sync')
-		self.keyPlot = 'sync'
+		self.getTimeShift()
+		self.keyPlot = 'wav'
 		self.plot()
 		self.edt.appendPlainText("Sync Done")
 	
 
-	def getTimeShift(self, keyIn, keyOut, nBatchSize = 8000000):
+	def getTimeShift(self, nChunkSize = 4000000):
 		# find base signal - longest one
-		lsT = [mp4[keyIn].T for mp4 in self.lsMp4]
+		lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
 		tMax = max(lsT)
 		idxBase = lsT.index(tMax)
-		signalBase = self.lsMp4[idxBase][keyIn]
+		signalBase = self.lsMp4[idxBase]['wav']
 		# print signalBase.f # 48000.0
 		
 		wavBase = signalBase.x
-		tBase = signalBase.t
-		nBase = tBase.size
+		tBase = signalBase.getTimeAxis()
+		nBase = signalBase.getLength()
 		
-		numBatch = np.ceil(float(nBase)/nBatchSize).astype(int)
+		numChunk = np.ceil(float(nBase)/nChunkSize).astype(int)
 		numMp4 = len(self.lsMp4)
-		npCorr = np.empty((numBatch, numMp4, nBatchSize))
-		
-		for i in range(numBatch):
-			print 'batch %d / %d'%(i,numBatch)
-			idxS = i * nBatchSize
-			idxE = min(idxS + nBatchSize, nBase)
-			wavBaseBatch = wavBase[idxS:idxE]
-			tBaseBatch = tBase[idxS:idxE]
+		npCorrProd = np.ones((numMp4, nChunkSize))
+
+		for i in range(numChunk):
+			print 'Chunk %d / %d'%(i,numChunk)
+			idxS = i * nChunkSize
+			idxE = min(idxS + nChunkSize, nBase)
+			wavBaseChunk = wavBase[idxS:idxE]
+			tBaseChunk = tBase[idxS:idxE]
 			
 			# FFT squared base signal
 			# square is better for highlighting peaks
-
-			
-			wavBaseBatch = np.pad(wavBaseBatch, (0, nBatchSize-wavBaseBatch.size), 'constant')
-			print 'FFT base', wavBaseBatch.size
-			fftBaseBatch = scipy.fft(wavBaseBatch * wavBaseBatch)
+			wavBaseChunk = np.pad(wavBaseChunk, (0, nChunkSize-wavBaseChunk.size), 'constant')
+			print 'FFT base', wavBaseChunk.size
+			fftBaseChunk = scipy.fft(wavBaseChunk * wavBaseChunk)
 			
 			for j in range(numMp4):
 				mp4 = self.lsMp4[j]
 				# FFT squared signal
 				# square is for highlighting peaks
 				
-				wav = np.interp(tBaseBatch, mp4[keyIn].t, mp4[keyIn].x, left=0, right=0)
-				wav = np.pad(wav, (0, nBatchSize-wav.size), 'constant')
+				wav = np.interp(tBaseChunk, mp4['wav'].getTimeAxis(), mp4['wav'].x, left=0, right=0)
+				wav = np.pad(wav, (0, nChunkSize-wav.size), 'constant')
 				print 'FFT ' + mp4['name'], wav.size
 				fftWav = scipy.fft(wav * wav)
 				
 				# get correlation function based on FFT (conjugate of convolution)
-				corr = np.abs(scipy.ifft(fftBaseBatch * scipy.conj(fftWav)))
-				npCorr[i,j,:] = corr/corr.max() + 1.0
-				# npCorr[i,j,:] = np.abs(scipy.ifft(fftBaseBatch * scipy.conj(fftWav)))
-				
+				corr = np.abs(scipy.ifft(fftBaseChunk * scipy.conj(fftWav)))
+				# add offset to reduce effects from zero corr
+				npCorrProd[j] = npCorrProd[j] * (corr/(corr.max()+1) + 1.0)
 		
-		npCorrProd = npCorr.prod(axis=0)
+		# npCorrProd = npCorr.prod(axis=0)
 		idxPeak = np.argmax(npCorrProd, axis=1)
-		idxPeak[np.where(idxPeak > nBatchSize/2)] = idxPeak[np.where(idxPeak > nBatchSize/2)] - nBatchSize
+		idxPeak[np.where(idxPeak > nChunkSize/2)] = idxPeak[np.where(idxPeak > nChunkSize/2)] - nChunkSize
 		
 		# allign minimum shifts to zero
 		sampleShift = idxPeak - min(idxPeak)
 
 		for j in range(numMp4):
-			self.lsMp4[j][keyOut] = self.lsMp4[j][keyIn].shiftSample(sampleShift[j])
-
+			self.lsMp4[j]['wav'].shiftSample(sampleShift[j])
 		print 'Done'
 
-
 	def fuse(self):
-		import time 
-		s = time.time()
-		# find base signal - longest one
-		lsT = [mp4['sync'].T for mp4 in self.lsMp4]
-		TMax = max(lsT)
-		idxBase = lsT.index(TMax)
-		signalBase = self.lsMp4[idxBase]['sync']
-		wavBase = signalBase.x
-		tBase = signalBase.t
-
-		numMp4 = len(self.lsMp4)
-		nBase = tBase.size
-		npWav = np.empty((numMp4, nBase))
-		for i in range(numMp4):
-			npWav[i,:] = np.interp(tBase, self.lsMp4[i]['sync'].t, self.lsMp4[i]['sync'].x, left=0, right=0)
-		wavMul = np.sum(npWav, axis=0)
-
+		fBase = 48000.0
 		
+		# find base signal - longest one
+		lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
+		TMax = max(lsT)
+		tBase = np.arange(0,TMax, 1.0/fBase)
+		
+		numMp4 = len(self.lsMp4)
+		wavMean = np.zeros(tBase.size)
+		for i in range(numMp4):
+			wav = np.interp(tBase, self.lsMp4[i]['wav'].getTimeAxis(), self.lsMp4[i]['wav'].x, left=0, right=0)
+			wavMean = wavMean + wav
+		
+		wavMean = (wavMean / numMp4).astype(int)
+		self.dictWav['fuse'] = MySignal(x=wavMean, f = fBase) 
 		self.ax.clear()
-		lsLegend = []
-		self.ax.plot(tBase[::100], wavMul[::100], label='multiplied')
-
+		self.ax.plot(tBase[::100], wavMean[::100], label='mean')
 		self.ax.set_xlabel('t(sec)')
 		self.canvas.draw()
 		self.bClick = True
-		self.plotted = np.array([mp4['sync'].t, mp4['sync'].x])
 		self.edt.appendPlainText("Fuse Done")
-		e = time.time()
-		print e - s
-
+		
 	def click(self):
 		if self.bClick:
 			self.edt.appendPlainText("Click point")
-			x, y = self.figure.ginput(1)[0]
-			self.edt.appendPlainText(str((x,y)))
+			X_clicked = self.figure.ginput(1)[0]
+			print X_clicked
+			self.edt.appendPlainText(str(X_clicked))
 			self.ax.set_ylim(self.ax.get_ylim()) 
+			
+			x_plotted = self.dictWav['fuse'].x
+			t_plotted = self.dictWav['fuse'].getTimeAxis()
+			lenPlotted = self.dictWav['fuse'].getLength()
 
 			xmin, xmax = self.ax.get_xlim()
 			ymin, ymax = self.ax.get_ylim()
 			sx, sy = self.figure.get_size_inches()
-			ax = (xmax - xmin)/sx
-			ay = (ymax - ymin)/sy
-			npA = np.array([ax,ay]).reshape(2,1)
-			rx = int(self.plotted.shape[1]/20)
-			idxX = int(x/self.plotted[0,-1] * self.plotted.shape[1])
-			subset = self.plotted[:,idxX-rx:idxX+rx]
-			
-			npX = np.array([x,y]).reshape(2,1)
-			diff = 1.0/npA * (subset - npX)
+			npScale = np.array([float(sx)/(xmax - xmin), float(sy)/(ymax - ymin)]).reshape(2,1)
+			x_range = int(lenPlotted/10)
+			idxX = int(X_clicked[0] / t_plotted[-1] * lenPlotted)
+			subset = np.vstack([t_plotted[idxX-x_range:idxX+x_range], x_plotted[idxX-x_range:idxX+x_range]])
+			npX = np.array(X_clicked).reshape(2,1)
+			diff = npScale * (subset - npX)
 			dist = diff[0]*diff[0] + diff[1]*diff[1]
 			idxMin = np.argmin(dist)
 			X = subset[:,idxMin]
 
-
 			rect = patches.Rectangle((X[0]-1.5,-40000),3,80000, facecolor='r', ec='none', zorder=10)
-			f = (self.plotted.shape[1] - 1)/(self.plotted[0,-1] - self.plotted[0,0])
-			print f
+			self.ax.add_patch(rect)
+			self.ax.plot(X[0],X[1],'go')
+			self.canvas.draw()
+			self.lsSplitPosition.append(X[0])
+			self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
+
+
+			# f = self.dictWav['fuse'].f
 
 			# p = pyaudio.PyAudio()
 			# stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
@@ -299,24 +287,62 @@ class Window(QtGui.QDialog):
 			# 	stream.write(data)
 			# 	inc=inc+chunk
 			# 	sig=signal[inc:inc+chunk]
-
-
-
-
-
-
-
-
-     
-    
-    
     
 
-			self.ax.add_patch(rect)
-			# self.ax.plot(X[0],X[1],'go')
-			self.canvas.draw()
-			self.lsSplitPosition.append(X[0])
-			self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
+
+	# def click(self):
+	# 	if self.bClick:
+	# 		self.edt.appendPlainText("Click point")
+	# 		x, y = self.figure.ginput(1)[0]
+	# 		self.edt.appendPlainText(str((x,y)))
+	# 		self.ax.set_ylim(self.ax.get_ylim()) 
+			
+	# 		xPlotted = self.dictWav['fuse'].x
+	# 		tPlotted = self.dictWav['fuse'].getTimeAxis()
+	# 		lPlotted = self.dictWav['fuse'].getLength()
+
+	# 		xmin, xmax = self.ax.get_xlim()
+	# 		ymin, ymax = self.ax.get_ylim()
+	# 		sx, sy = self.figure.get_size_inches()
+	# 		ax = (xmax - xmin)/sx
+	# 		ay = (ymax - ymin)/sy
+	# 		npA = np.array([ax,ay]).reshape(2,1)
+	# 		rx = int(lPlotted/20)
+	# 		idxX = int(x / tPlotted[-1] * lPlotted)
+	# 		# subset = self.plotted[:,idxX-rx:idxX+rx]
+	# 		subset = np.vstack([tPlotted[idxX-rx:idxX+rx],xPlotted[idxX-rx:idxX+rx]])
+			
+	# 		npX = np.array([x,y]).reshape(2,1)
+	# 		diff = 1.0/npA * (subset - npX)
+	# 		dist = diff[0]*diff[0] + diff[1]*diff[1]
+	# 		idxMin = np.argmin(dist)
+	# 		X = subset[:,idxMin]
+
+
+	# 		rect = patches.Rectangle((X[0]-1.5,-40000),3,80000, facecolor='r', ec='none', zorder=10)
+	# 		f = (lPlotted - 1)/(tPlotted[-1] - tPlotted[0])
+	# 		print f
+
+	# 		# p = pyaudio.PyAudio()
+	# 		# stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
+	# 		# play = subset[:,int(idxMin - 1.5 * f):int(idxMin + 1.5 * f)]
+	# 		# chunk = 1024
+	# 		# sig=play[0:chunk]
+	# 		# inc = 0;
+	# 		# data=0;
+	# 		# while data != '':
+	# 		# 	data = struct.pack("%dh"%(len(sig)), *list(sig))   
+	# 		# 	stream.write(data)
+	# 		# 	inc=inc+chunk
+	# 		# 	sig=signal[inc:inc+chunk]
+    
+
+	# 		self.ax.add_patch(rect)
+	# 		# self.ax.plot(X[0],X[1],'go')
+	# 		self.canvas.draw()
+	# 		self.lsSplitPosition.append(X[0])
+	# 		self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
+
 
 	def play(self):
 		self.timer = QTimer()
@@ -355,6 +381,15 @@ if __name__ == '__main__':
 	main.show()
 
 	sys.exit(app.exec_())
+
+
+
+
+
+
+
+
+
 
 
 
