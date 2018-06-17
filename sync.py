@@ -258,19 +258,16 @@ class Window(QtGui.QDialog):
 			npScale = np.array([float(sx)/(xmax - xmin), float(sy)/(ymax - ymin)]).reshape(2,1)
 			x_range = int(lenPlotted/10)
 			idxX = int(X_clicked[0] / t_plotted[-1] * lenPlotted)
-			subset = np.vstack([t_plotted[idxX-x_range:idxX+x_range], x_plotted[idxX-x_range:idxX+x_range]])
+			idxFrom = max(idxX-x_range, 0)
+			idxTo = min(idxX+x_range, lenPlotted-1)
+			subset = np.vstack([t_plotted[idxFrom:idxTo], x_plotted[idxFrom:idxTo]])
 			npX = np.array(X_clicked).reshape(2,1)
 			diff = npScale * (subset - npX)
 			dist = diff[0]*diff[0] + diff[1]*diff[1]
+			print idxX-x_range, idxX+x_range
+			print dist
 			idxMin = np.argmin(dist)
 			X = subset[:,idxMin]
-
-			rect = patches.Rectangle((X[0]-1.5,-40000),3,80000, facecolor='r', ec='none', zorder=10)
-			self.ax.add_patch(rect)
-			self.ax.plot(X[0],X[1],'go')
-			self.canvas.draw()
-			self.lsSplitPosition.append(X[0])
-			self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
 
 
 			f = self.dictWav['fuse'].f
@@ -278,7 +275,7 @@ class Window(QtGui.QDialog):
 			p = pyaudio.PyAudio()
 			stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
 			play = subset[1,int(idxMin - 1.5 * f):int(idxMin + 1.5 * f)]
-			# play = subset[1]
+
 			chunk = 1024
 			sig=play[0:chunk]
 
@@ -289,7 +286,17 @@ class Window(QtGui.QDialog):
 				stream.write(data)
 				inc=inc+chunk
 				sig=play[inc:inc+chunk]
-			# self.lsMp4[j]['wav'].x    
+			 
+
+			if QtGui.QMessageBox.question(self,'', "Is it the cutting point?", 
+				QtGui.QMessageBox.Yes | QtGui.QMessageBox.No) == QtGui.QMessageBox.Yes:
+
+				rect = patches.Rectangle((X[0]-1.5,-40000),3,80000, facecolor='r', ec='none', zorder=10)
+				self.ax.add_patch(rect)
+				self.ax.plot(X[0],X[1],'go')
+				self.canvas.draw()
+				self.lsSplitPosition.append(X[0])
+				self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
 
 
 	# def click(self):
