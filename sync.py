@@ -273,21 +273,23 @@ class Window(QtGui.QDialog):
 			self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
 
 
-			# f = self.dictWav['fuse'].f
+			f = self.dictWav['fuse'].f
 
-			# p = pyaudio.PyAudio()
-			# stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
-			# play = subset[:,int(idxMin - 1.5 * f):int(idxMin + 1.5 * f)]
-			# chunk = 1024
-			# sig=play[0:chunk]
-			# inc = 0;
-			# data=0;
-			# while data != '':
-			# 	data = struct.pack("%dh"%(len(sig)), *list(sig))   
-			# 	stream.write(data)
-			# 	inc=inc+chunk
-			# 	sig=signal[inc:inc+chunk]
-    
+			p = pyaudio.PyAudio()
+			stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
+			play = subset[1,int(idxMin - 1.5 * f):int(idxMin + 1.5 * f)]
+			# play = subset[1]
+			chunk = 1024
+			sig=play[0:chunk]
+
+			inc = 0;
+			data= 0;
+			while data != '':
+				data = struct.pack("%dh"%(len(sig)), *list(sig))   
+				stream.write(data)
+				inc=inc+chunk
+				sig=play[inc:inc+chunk]
+			# self.lsMp4[j]['wav'].x    
 
 
 	# def click(self):
