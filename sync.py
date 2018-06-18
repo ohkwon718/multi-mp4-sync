@@ -57,6 +57,8 @@ class Window(QtGui.QDialog):
 		self.btnClick = QtGui.QPushButton('Click')
 		self.btnClick.clicked.connect(self.click)
 
+		self.btnGenerate = QtGui.QPushButton('Generate')
+		self.btnGenerate.clicked.connect(self.generate)
 		
 		self.edt = QtGui.QPlainTextEdit()
 		self.edt.setDisabled(True)
@@ -75,8 +77,9 @@ class Window(QtGui.QDialog):
 		layout.addWidget(self.btnSync,2,0,1,1)
 		layout.addWidget(self.btnFuse,3,0,1,1)
 		layout.addWidget(self.btnClick,4,0,1,1)
-		layout.addWidget(self.listFile,2,1,3,1)
-		layout.addWidget(self.edt,2,2,3,1)
+		layout.addWidget(self.btnGenerate,5,0,1,1)
+		layout.addWidget(self.listFile,2,1,4,1)
+		layout.addWidget(self.edt,2,2,4,1)
 
 		self.setLayout(layout)
 		self.lsMp4 = []
@@ -239,55 +242,16 @@ class Window(QtGui.QDialog):
 		self.canvas.draw()
 		self.bClick = True
 		self.edt.appendPlainText("Fuse Done")
-		
+		for j in range(numMp4):
+			self.lsMp4[j]['time-shift'] = self.lsMp4[j]['wav'].t0
+			del self.lsMp4[j]['wav']
+	
+
 	def click(self):
 		if self.bClick:
-			self.edt.appendPlainText("Click point")
-			X_clicked = self.figure.ginput(1)[0]
-			print X_clicked
-			self.edt.appendPlainText(str(X_clicked))
-			self.ax.set_ylim(self.ax.get_ylim()) 
+			X, play = self.getClickedPoint()
+			self.playSound(play, f = self.dictWav['fuse'].f)
 			
-			x_plotted = self.dictWav['fuse'].x
-			t_plotted = self.dictWav['fuse'].getTimeAxis()
-			lenPlotted = self.dictWav['fuse'].getLength()
-
-			xmin, xmax = self.ax.get_xlim()
-			ymin, ymax = self.ax.get_ylim()
-			sx, sy = self.figure.get_size_inches()
-			npScale = np.array([float(sx)/(xmax - xmin), float(sy)/(ymax - ymin)]).reshape(2,1)
-			x_range = int(lenPlotted/10)
-			idxX = int(X_clicked[0] / t_plotted[-1] * lenPlotted)
-			idxFrom = max(idxX-x_range, 0)
-			idxTo = min(idxX+x_range, lenPlotted-1)
-			subset = np.vstack([t_plotted[idxFrom:idxTo], x_plotted[idxFrom:idxTo]])
-			npX = np.array(X_clicked).reshape(2,1)
-			diff = npScale * (subset - npX)
-			dist = diff[0]*diff[0] + diff[1]*diff[1]
-			print idxX-x_range, idxX+x_range
-			print dist
-			idxMin = np.argmin(dist)
-			X = subset[:,idxMin]
-
-
-			f = self.dictWav['fuse'].f
-
-			p = pyaudio.PyAudio()
-			stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
-			play = subset[1,int(idxMin - 1.5 * f):int(idxMin + 1.5 * f)]
-
-			chunk = 1024
-			sig=play[0:chunk]
-
-			inc = 0;
-			data= 0;
-			while data != '':
-				data = struct.pack("%dh"%(len(sig)), *list(sig))   
-				stream.write(data)
-				inc=inc+chunk
-				sig=play[inc:inc+chunk]
-			 
-
 			if QtGui.QMessageBox.question(self,'', "Is it the cutting point?", 
 				QtGui.QMessageBox.Yes | QtGui.QMessageBox.No) == QtGui.QMessageBox.Yes:
 
@@ -299,59 +263,127 @@ class Window(QtGui.QDialog):
 				self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
 
 
-	# def click(self):
-	# 	if self.bClick:
-	# 		self.edt.appendPlainText("Click point")
-	# 		x, y = self.figure.ginput(1)[0]
-	# 		self.edt.appendPlainText(str((x,y)))
-	# 		self.ax.set_ylim(self.ax.get_ylim()) 
+	def getClickedPoint(self):
+		self.ax.set_xlim(self.ax.get_xlim()) 
+		self.ax.set_ylim(self.ax.get_ylim()) 
+
+		self.edt.appendPlainText("Click point")
+		X_clicked = self.figure.ginput(1)[0]
+		self.edt.appendPlainText(str(X_clicked))
+
+		x_plotted = self.dictWav['fuse'].x
+		t_plotted = self.dictWav['fuse'].getTimeAxis()
+		len_plotted = self.dictWav['fuse'].getLength()
+
+		xmin, xmax = self.ax.get_xlim()
+		ymin, ymax = self.ax.get_ylim()
+		sx, sy = self.figure.get_size_inches()
+		npScale = np.array([float(sx)/(xmax - xmin), float(sy)/(ymax - ymin)]).reshape(2,1)
+
+		x_range = int(len_plotted/10)
+		idxX = int(X_clicked[0] / t_plotted[-1] * len_plotted)
+
+		idxFrom = max(idxX-x_range, 0)
+		idxTo = min(idxX+x_range, len_plotted-1)
+		subset = np.vstack([t_plotted[idxFrom:idxTo], x_plotted[idxFrom:idxTo]])
+		npX = np.array(X_clicked).reshape(2,1)
+		diff = npScale * (subset - npX)
+		dist = diff[0]*diff[0] + diff[1]*diff[1]
+		
+		idxMin = np.argmin(dist)
+		X = subset[:,idxMin]
+		f_plotted = self.dictWav['fuse'].f
+		play = subset[1,int(idxMin - 1.5 * f_plotted):int(idxMin + 1.5 * f_plotted)]
+		return X, play
+
+	def playSound(self, play, f):
+		p = pyaudio.PyAudio()
+		stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
+		nChunkSize = 1024
+		
+		numChunk = np.ceil(float(play.size)/nChunkSize).astype(int)
+		for i in range(numChunk):
+			idxS = i * nChunkSize
+			idxE = min(idxS + nChunkSize, play.size)
+			wavChunk = play[idxS:idxE]
+			data = struct.pack("%dh"%(len(wavChunk)), *list(wavChunk))   
+			stream.write(data)
+	
+	def generate(self):
+		self.generateSegmentedVideos()
+
+
+
+	def generateSegmentedVideos(self):
+		for mp4 in self.lsMp4:
+			cap = cv2.VideoCapture(mp4['mp4-file'])
+			fps = cap.get(cv2.CAP_PROP_FPS)
+			w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH ))
+			h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT ))
 			
-	# 		xPlotted = self.dictWav['fuse'].x
-	# 		tPlotted = self.dictWav['fuse'].getTimeAxis()
-	# 		lPlotted = self.dictWav['fuse'].getLength()
+			nFrame = 0
+			# for t in self.lsSplitPosition:
+			for j in range(len(self.lsSplitPosition)):
+				t = self.lsSplitPosition[j]
+				nFrameEnd = int(fps * (t - self.lsMp4[i]['time-shift']))
 
-	# 		xmin, xmax = self.ax.get_xlim()
-	# 		ymin, ymax = self.ax.get_ylim()
-	# 		sx, sy = self.figure.get_size_inches()
-	# 		ax = (xmax - xmin)/sx
-	# 		ay = (ymax - ymin)/sy
-	# 		npA = np.array([ax,ay]).reshape(2,1)
-	# 		rx = int(lPlotted/20)
-	# 		idxX = int(x / tPlotted[-1] * lPlotted)
-	# 		# subset = self.plotted[:,idxX-rx:idxX+rx]
-	# 		subset = np.vstack([tPlotted[idxX-rx:idxX+rx],xPlotted[idxX-rx:idxX+rx]])
-			
-	# 		npX = np.array([x,y]).reshape(2,1)
-	# 		diff = 1.0/npA * (subset - npX)
-	# 		dist = diff[0]*diff[0] + diff[1]*diff[1]
-	# 		idxMin = np.argmin(dist)
-	# 		X = subset[:,idxMin]
+				capSize = (w, h)
+				fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+				
+				strFilename, strExtension = os.path.splitext(os.path.basename(mp4['mp4-file']))
+				strNum = '-%03d' % j
+				strFilenameOutput = os.path.join("result", strFilename + strNum + ".mp4")
+				print strFilenameOutput
+				out = cv2.VideoWriter(strFilenameOutput, fourcc, fps, capSize)
 
 
-	# 		rect = patches.Rectangle((X[0]-1.5,-40000),3,80000, facecolor='r', ec='none', zorder=10)
-	# 		f = (lPlotted - 1)/(tPlotted[-1] - tPlotted[0])
-	# 		print f
+				while(cap.isOpened() and nFrame < nFrameEnd):
+					ret, frame = cap.read()
+					if ret == True:
+						nFrame = nFrame + 1
+						if nFrame%100 == 0:
+							print nFrame
+						out.write(frame)
+						# out.write(125 * np.zeros((w,h,3), np.uint8))
+						# if cv2.waitKey(1) & 0xFF == ord('q'):
+						# 	break
+					else:
+						break
 
-	# 		# p = pyaudio.PyAudio()
-	# 		# stream = p.open(format = p.get_format_from_width(2), channels = 1, rate = int(f), output = True)
-	# 		# play = subset[:,int(idxMin - 1.5 * f):int(idxMin + 1.5 * f)]
-	# 		# chunk = 1024
-	# 		# sig=play[0:chunk]
-	# 		# inc = 0;
-	# 		# data=0;
-	# 		# while data != '':
-	# 		# 	data = struct.pack("%dh"%(len(sig)), *list(sig))   
-	# 		# 	stream.write(data)
-	# 		# 	inc=inc+chunk
-	# 		# 	sig=signal[inc:inc+chunk]
-    
+				out.release()
+			cap.release()
 
-	# 		self.ax.add_patch(rect)
-	# 		# self.ax.plot(X[0],X[1],'go')
-	# 		self.canvas.draw()
-	# 		self.lsSplitPosition.append(X[0])
-	# 		self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
+				# 
+				# out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 10, (frame_width,frame_height))
+		
+  #       cap = cv2.VideoCapture(0)
+		# w=int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH ))
+		# h=int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT ))
 
+		# capSize = (100, 100)
+		# fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v')
+		# # out = cv2.VideoWriter('output.mov',fourcc, 1, capSize)
+		# out = cv2.VideoWriter('output.mp4',fourcc, 1, capSize)
+
+		# while(cap.isOpened()):
+		#     ret, frame = cap.read()
+		#     if ret==True:
+		#         frame = cv2.flip(frame,0)
+
+		#         # write the flipped frame
+		#         # out.write(frame)
+		#         out.write(125 * np.zeros((100,100,3), np.uint8)) 
+
+		#         cv2.imshow('frame',frame)
+		#         if cv2.waitKey(1) & 0xFF == ord('q'):
+		#             break
+		#     else:
+		#         break
+
+		# # Release everything if job is finished
+		# cap.release()
+		# out.release()
+		# cv2.destroyAllWindows()
 
 	def play(self):
 		self.timer = QTimer()
