@@ -163,7 +163,8 @@ class Window(QtGui.QDialog):
 		self.keyPlot = 'wav'
 		self.plot()
 		self.edt.appendPlainText("Sync Done")
-	
+		sys.stdout.write('\a')
+		sys.stdout.flush()
 
 	def getTimeShift(self, nChunkSize = 4000000):
 		# find base signal - longest one
@@ -244,8 +245,10 @@ class Window(QtGui.QDialog):
 		self.edt.appendPlainText("Fuse Done")
 		for j in range(numMp4):
 			self.lsMp4[j]['time-shift'] = self.lsMp4[j]['wav'].t0
+			self.lsMp4[j]['time-end'] = self.lsMp4[j]['wav'].getTEnd()
 			del self.lsMp4[j]['wav']
-	
+		sys.stdout.write('\a')
+		sys.stdout.flush()	
 
 	def click(self):
 		if self.bClick:
@@ -315,75 +318,71 @@ class Window(QtGui.QDialog):
 
 
 	def generateSegmentedVideos(self):
+		tEndMax = max([mp4['time-end'] for mp4 in self.lsMp4])
 		for mp4 in self.lsMp4:
 			cap = cv2.VideoCapture(mp4['mp4-file'])
 			fps = cap.get(cv2.CAP_PROP_FPS)
 			w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH ))
 			h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT ))
-			
+			capSize = (w, h)
+			fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+			strFilename, strExtension = os.path.splitext(os.path.basename(mp4['mp4-file']))
+
 			nFrame = 0
-			# for t in self.lsSplitPosition:
+			
 			for j in range(len(self.lsSplitPosition)):
 				t = self.lsSplitPosition[j]
-				nFrameEnd = int(fps * (t - self.lsMp4[i]['time-shift']))
-
-				capSize = (w, h)
-				fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+				# nFrameEnd = int(fps * (t - mp4['time-shift']))
+				nFrameEnd = int(fps * t) - int(fps * mp4['time-shift'])
 				
-				strFilename, strExtension = os.path.splitext(os.path.basename(mp4['mp4-file']))
 				strNum = '-%03d' % j
 				strFilenameOutput = os.path.join("result", strFilename + strNum + ".mp4")
-				print strFilenameOutput
+				print strFilenameOutput,
 				out = cv2.VideoWriter(strFilenameOutput, fourcc, fps, capSize)
 
-
+				if j == 0:
+					# print 'black %d frames'%np.ceil(fps * mp4['time-shift'])
+					# for _ in range(np.ceil(fps * mp4['time-shift'])):
+					print 'black %d frames'%int(fps * mp4['time-shift']),
+					for _ in range(int(fps * mp4['time-shift'])):
+						out.write(np.zeros((h,w,3), np.uint8))
 				while(cap.isOpened() and nFrame < nFrameEnd):
 					ret, frame = cap.read()
 					if ret == True:
 						nFrame = nFrame + 1
-						if nFrame%100 == 0:
-							print nFrame
 						out.write(frame)
-						# out.write(125 * np.zeros((w,h,3), np.uint8))
-						# if cv2.waitKey(1) & 0xFF == ord('q'):
-						# 	break
 					else:
 						break
 
 				out.release()
+				
+				test = cv2.VideoCapture(strFilenameOutput)
+				print test.get(cv2.CAP_PROP_FRAME_COUNT)
+			
+			j = len(self.lsSplitPosition)
+			strNum = '-%03d' % j
+			strFilenameOutput = os.path.join("result", strFilename + strNum + ".mp4")
+			print strFilenameOutput,
+			out = cv2.VideoWriter(strFilenameOutput, fourcc, fps, capSize)
+			
+			while(cap.isOpened()):
+				ret, frame = cap.read()
+				if ret == True:
+					nFrame = nFrame + 1
+					out.write(frame)
+				else:
+					break
+			print 'black %d frames'%int(fps * mp4['time-shift']),
+			for _ in range( int(np.ceil(fps * tEndMax)) - ( nFrame + int(fps * mp4['time-shift']) ) ):
+				out.write(np.zeros((h,w,3), np.uint8))
+			out.release()
+			test = cv2.VideoCapture(strFilenameOutput)
+			print test.get(cv2.CAP_PROP_FRAME_COUNT)
 			cap.release()
 
-				# 
-				# out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 10, (frame_width,frame_height))
-		
-  #       cap = cv2.VideoCapture(0)
-		# w=int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH ))
-		# h=int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT ))
-
-		# capSize = (100, 100)
-		# fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v')
-		# # out = cv2.VideoWriter('output.mov',fourcc, 1, capSize)
-		# out = cv2.VideoWriter('output.mp4',fourcc, 1, capSize)
-
-		# while(cap.isOpened()):
-		#     ret, frame = cap.read()
-		#     if ret==True:
-		#         frame = cv2.flip(frame,0)
-
-		#         # write the flipped frame
-		#         # out.write(frame)
-		#         out.write(125 * np.zeros((100,100,3), np.uint8)) 
-
-		#         cv2.imshow('frame',frame)
-		#         if cv2.waitKey(1) & 0xFF == ord('q'):
-		#             break
-		#     else:
-		#         break
-
-		# # Release everything if job is finished
-		# cap.release()
-		# out.release()
-		# cv2.destroyAllWindows()
+		sys.stdout.write('\a')
+		sys.stdout.flush()
+				
 
 	def play(self):
 		self.timer = QTimer()
