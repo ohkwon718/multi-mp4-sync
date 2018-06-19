@@ -263,6 +263,7 @@ class Window(QtGui.QDialog):
 				self.ax.plot(X[0],X[1],'go')
 				self.canvas.draw()
 				self.lsSplitPosition.append(X[0])
+				self.lsSplitPosition.sort()
 				self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
 
 
