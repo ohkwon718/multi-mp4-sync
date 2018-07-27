@@ -34,6 +34,7 @@ class Window(QtGui.QDialog):
 		self.resize(w, h)
 		self.setAcceptDrops(True)
 
+
 		self.figure = Figure()
 		self.canvas = FigureCanvas(self.figure)
 		self.toolbar = NavigationToolbar(self.canvas, self)
@@ -70,16 +71,37 @@ class Window(QtGui.QDialog):
 		self.listFile.setFixedWidth(100)
 		
 
+		self.menuBar = QtGui.QMenuBar(self)		
+		fileMenu = self.menuBar.addMenu('File')
+		exit_action = QtGui.QAction('Exit', self)
+		exit_action.triggered.connect(exit)
+		fileMenu.addAction(exit_action)
+		# editMenu = mainMenu.addMenu('Edit')
+		# viewMenu = mainMenu.addMenu('View')
+		# searchMenu = mainMenu.addMenu('Search')
+		# toolsMenu = mainMenu.addMenu('Tools')
+		# helpMenu = mainMenu.addMenu('Help')
+
 		layout = QtGui.QGridLayout()
 
-		layout.addWidget(self.toolbar,0,0,1,3)
-		layout.addWidget(self.canvas,1,0,1,3)
-		layout.addWidget(self.btnSync,2,0,1,1)
-		layout.addWidget(self.btnFuse,3,0,1,1)
-		layout.addWidget(self.btnClick,4,0,1,1)
-		layout.addWidget(self.btnGenerate,5,0,1,1)
-		layout.addWidget(self.listFile,2,1,4,1)
-		layout.addWidget(self.edt,2,2,4,1)
+		layout.addWidget(self.menuBar,0,0,1,3)
+		layout.addWidget(self.toolbar,1,0,1,3)
+		layout.addWidget(self.canvas,2,0,1,3)
+		layout.addWidget(self.btnSync,3,0,1,1)
+		layout.addWidget(self.btnFuse,4,0,1,1)
+		layout.addWidget(self.btnClick,5,0,1,1)
+		layout.addWidget(self.btnGenerate,6,0,1,1)
+		layout.addWidget(self.listFile,3,1,4,1)
+		layout.addWidget(self.edt,3,2,4,1)
+		layout.move(100,100)
+		# layout.addWidget(self.toolbar,0,0,1,3)
+		# layout.addWidget(self.canvas,1,0,1,3)
+		# layout.addWidget(self.btnSync,2,0,1,1)
+		# layout.addWidget(self.btnFuse,3,0,1,1)
+		# layout.addWidget(self.btnClick,4,0,1,1)
+		# layout.addWidget(self.btnGenerate,5,0,1,1)
+		# layout.addWidget(self.listFile,2,1,4,1)
+		# layout.addWidget(self.edt,2,2,4,1)
 
 		self.setLayout(layout)
 		self.lsMp4 = []
