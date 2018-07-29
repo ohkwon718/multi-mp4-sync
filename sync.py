@@ -72,15 +72,19 @@ class Window(QtGui.QDialog):
 		
 
 		self.menuBar = QtGui.QMenuBar(self)		
-		fileMenu = self.menuBar.addMenu('File')
-		exit_action = QtGui.QAction('Exit', self)
-		exit_action.triggered.connect(exit)
-		fileMenu.addAction(exit_action)
-		# editMenu = mainMenu.addMenu('Edit')
-		# viewMenu = mainMenu.addMenu('View')
-		# searchMenu = mainMenu.addMenu('Search')
-		# toolsMenu = mainMenu.addMenu('Tools')
-		# helpMenu = mainMenu.addMenu('Help')
+		self.menuBar.setNativeMenuBar(False)
+		menuFile = self.menuBar.addMenu('File')
+
+		actOpen = QtGui.QAction('Open', self)
+		actOpen.setShortcut("Ctrl+O")
+		actOpen.triggered.connect(self.openFiles)
+		menuFile.addAction(actOpen)
+
+		actExit = QtGui.QAction('Exit', self)
+		actExit.setShortcut("Ctrl+Q")
+		actExit.triggered.connect(exit)
+		menuFile.addAction(actExit)
+
 
 		layout = QtGui.QGridLayout()
 
@@ -93,23 +97,17 @@ class Window(QtGui.QDialog):
 		layout.addWidget(self.btnGenerate,6,0,1,1)
 		layout.addWidget(self.listFile,3,1,4,1)
 		layout.addWidget(self.edt,3,2,4,1)
-		layout.move(100,100)
-		# layout.addWidget(self.toolbar,0,0,1,3)
-		# layout.addWidget(self.canvas,1,0,1,3)
-		# layout.addWidget(self.btnSync,2,0,1,1)
-		# layout.addWidget(self.btnFuse,3,0,1,1)
-		# layout.addWidget(self.btnClick,4,0,1,1)
-		# layout.addWidget(self.btnGenerate,5,0,1,1)
-		# layout.addWidget(self.listFile,2,1,4,1)
-		# layout.addWidget(self.edt,2,2,4,1)
-
+		# layout.move(100,100)
+		# self.move(100,100)
 		self.setLayout(layout)
 		self.lsMp4 = []
 		self.dictWav = {}
 		self.bClick = False
 		self.lsSplitPosition = []
 		self.ax = self.figure.add_subplot(111)
-		
+
+
+
 	def eventFilter(self, obj, event):
 		if event.type() == QEvent.KeyPress and obj == self.listFile:
 			if event.key() == Qt.Key_Delete:
@@ -143,6 +141,24 @@ class Window(QtGui.QDialog):
 		self.keyPlot = 'wav'	
 		self.plot()
 
+
+	def openFiles(self):
+		dlg = QtGui.QFileDialog()
+		dlg.setFileMode(QtGui.QFileDialog.ExistingFiles)
+		dlg.setDirectory(os.getcwd())
+		dlg.setFilter("Text files (*.mp4)")
+		
+
+		if dlg.exec_():
+			lsUrl = dlg.selectedFiles()
+			for url in lsUrl:
+				mp4 = self.loadMp4(str(url))
+				if mp4:
+					self.lsMp4.append(mp4)
+					item = QtGui.QListWidgetItem(mp4['name'])
+					self.listFile .addItem(item)
+				self.keyPlot = 'wav'	
+				self.plot()
 
 	def loadMp4(self, url):
 		if url in [mp4['mp4-file'] for mp4 in self.lsMp4]:
