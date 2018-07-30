@@ -34,43 +34,6 @@ class Window(QtGui.QDialog):
 		self.resize(w, h)
 		self.setAcceptDrops(True)
 
-
-		self.figure = Figure()
-		self.canvas = FigureCanvas(self.figure)
-		self.toolbar = NavigationToolbar(self.canvas, self)
-
-		# Just some button connected to `plot` method
-		self.btnSync = QtGui.QPushButton('Sync')
-		self.btnSync.clicked.connect(self.sync)
-		
-		self.btnPlay = QtGui.QPushButton('play')
-		self.btnPlay.clicked.connect(self.play)
-		
-		self.btnStop = QtGui.QPushButton('stop')
-		self.btnStop.clicked.connect(self.stop)
-	
-		self.btnLoad = QtGui.QPushButton('Load')
-		self.btnLoad.clicked.connect(self.load)
-
-		self.btnFuse = QtGui.QPushButton('Fuse')
-		self.btnFuse.clicked.connect(self.fuse)
-
-		self.btnClick = QtGui.QPushButton('Click')
-		self.btnClick.clicked.connect(self.click)
-
-		self.btnGenerate = QtGui.QPushButton('Generate')
-		self.btnGenerate.clicked.connect(self.generate)
-		
-		self.edt = QtGui.QPlainTextEdit()
-		self.edt.setDisabled(True)
-		self.edt.setMaximumBlockCount(10)
-		
-			
-		self.listFile = QtGui.QListWidget()
-		self.listFile.installEventFilter(self)
-		self.listFile.setFixedWidth(100)
-		
-
 		self.menuBar = QtGui.QMenuBar(self)		
 		self.menuBar.setNativeMenuBar(False)
 		menuFile = self.menuBar.addMenu('File')
@@ -85,20 +48,50 @@ class Window(QtGui.QDialog):
 		actExit.triggered.connect(exit)
 		menuFile.addAction(actExit)
 
+		self.figure = Figure()
+		self.canvas = FigureCanvas(self.figure)
+		self.toolbar = NavigationToolbar(self.canvas, self)
+
+		self.btnSync = QtGui.QPushButton('Sync')
+		self.btnSync.clicked.connect(self.sync)
+
+		self.btnFuse = QtGui.QPushButton('Fuse')
+		self.btnFuse.clicked.connect(self.fuse)
+
+		self.btnClick = QtGui.QPushButton('Click')
+		self.btnClick.clicked.connect(self.click)
+
+		self.btnGenerate = QtGui.QPushButton('Generate')
+		self.btnGenerate.clicked.connect(self.generate)
+
+		self.cbBlank = QtGui.QCheckBox("Insert Blank")
+
+		layoutControl = QtGui.QGridLayout()
+		layoutControl.addWidget(self.btnSync,0,0,1,1)
+		layoutControl.addWidget(self.btnFuse,1,0,1,1)
+		layoutControl.addWidget(self.btnClick,2,0,1,1)
+		layoutControl.addWidget(self.btnGenerate,3,0,1,1)
+		layoutControl.addWidget(self.cbBlank,4,0,1,1)
+		
+		self.cbHarris = QtGui.QCheckBox("Harris")
+		self.cbHarris.stateChanged.connect(lambda:self.evCheckBox(self.cbHarris))
+
+		self.edt = QtGui.QPlainTextEdit()
+		self.edt.setDisabled(True)
+		self.edt.setMaximumBlockCount(10)
+					
+		self.listFile = QtGui.QListWidget()
+		self.listFile.installEventFilter(self)
+		self.listFile.setFixedWidth(100)
 
 		layout = QtGui.QGridLayout()
-
 		layout.addWidget(self.menuBar,0,0,1,3)
 		layout.addWidget(self.toolbar,1,0,1,3)
 		layout.addWidget(self.canvas,2,0,1,3)
-		layout.addWidget(self.btnSync,3,0,1,1)
-		layout.addWidget(self.btnFuse,4,0,1,1)
-		layout.addWidget(self.btnClick,5,0,1,1)
-		layout.addWidget(self.btnGenerate,6,0,1,1)
-		layout.addWidget(self.listFile,3,1,4,1)
-		layout.addWidget(self.edt,3,2,4,1)
-		# layout.move(100,100)
-		# self.move(100,100)
+		layout.addLayout(layoutControl,3,0,1,1)
+		layout.addWidget(self.listFile,3,1,1,1)
+		layout.addWidget(self.edt,3,2,1,1)
+
 		self.setLayout(layout)
 		self.lsMp4 = []
 		self.dictWav = {}
@@ -371,7 +364,6 @@ class Window(QtGui.QDialog):
 			
 			for j in range(len(self.lsSplitPosition)):
 				t = self.lsSplitPosition[j]
-				# nFrameEnd = int(fps * (t - mp4['time-shift']))
 				nFrameEnd = int(fps * t) - int(fps * mp4['time-shift'])
 				
 				strNum = '-%03d' % j
@@ -379,12 +371,11 @@ class Window(QtGui.QDialog):
 				print strFilenameOutput,
 				out = cv2.VideoWriter(strFilenameOutput, fourcc, fps, capSize)
 
-				if j == 0:
-					# print 'black %d frames'%np.ceil(fps * mp4['time-shift'])
-					# for _ in range(np.ceil(fps * mp4['time-shift'])):
+				if j == 0 and self.cbBlank.isChecked():
 					print 'black %d frames'%int(fps * mp4['time-shift']),
 					for _ in range(int(fps * mp4['time-shift'])):
 						out.write(np.zeros((h,w,3), np.uint8))
+
 				while(cap.isOpened() and nFrame < nFrameEnd):
 					ret, frame = cap.read()
 					if ret == True:
@@ -411,9 +402,11 @@ class Window(QtGui.QDialog):
 					out.write(frame)
 				else:
 					break
-			print 'black %d frames'%int(fps * mp4['time-shift']),
-			for _ in range( int(np.ceil(fps * tEndMax)) - ( nFrame + int(fps * mp4['time-shift']) ) ):
-				out.write(np.zeros((h,w,3), np.uint8))
+
+			if self.cbBlank.isChecked():
+				print 'black %d frames'%int(fps * mp4['time-shift']),
+				for _ in range( int(np.ceil(fps * tEndMax)) - ( nFrame + int(fps * mp4['time-shift']) ) ):
+					out.write(np.zeros((h,w,3), np.uint8))
 			out.release()
 			test = cv2.VideoCapture(strFilenameOutput)
 			print test.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -423,33 +416,6 @@ class Window(QtGui.QDialog):
 		sys.stdout.flush()
 				
 
-	def play(self):
-		self.timer = QTimer()
-		self.timer.timeout.connect(self.tick)
-		self.timer.start(50)
-
-
-	def stop(self):
-		self.timer.stop()
-
-	def load(self):
-		self.cap = cv2.VideoCapture('mp4/cam4.MP4')
-		nFrame = 0
-		while(cap.isOpened()):
-		    ret, frame = self.cap.read()
-		    if ret == True:
-		    	print "frame ",nFrame
-		    	nFrame = nFrame + 1
-		    	cv2.imshow('Frame',frame)
-		     
-		        if cv2.waitKey(25) & 0xFF == ord('q'):
-		           break
-
-		    else: 
-		        break
-
-	def tick(self):
-		print 't'
 
 
 
