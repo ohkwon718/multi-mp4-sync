@@ -73,9 +73,6 @@ class Window(QtGui.QDialog):
 		layoutControl.addWidget(self.btnGenerate,3,0,1,1)
 		layoutControl.addWidget(self.cbBlank,4,0,1,1)
 		
-		self.cbHarris = QtGui.QCheckBox("Harris")
-		self.cbHarris.stateChanged.connect(lambda:self.evCheckBox(self.cbHarris))
-
 		self.edt = QtGui.QPlainTextEdit()
 		self.edt.setDisabled(True)
 		self.edt.setMaximumBlockCount(10)
