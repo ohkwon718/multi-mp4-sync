@@ -12,6 +12,7 @@ import scipy
 import wave
 import pyaudio
 import struct
+import time
 
 from PyQt4 import QtGui
 from PyQt4.QtCore import QTimer, QEvent, Qt
@@ -159,14 +160,27 @@ class Window(QtGui.QDialog):
 			return
 		strFileWav = os.path.join("wav", strFilename + ".wav")
 		command = "ffmpeg -n -i " + url + " -ac 1 -vn "+ strFileWav
+		
 		# subprocess.call(command, shell=True)
 		if os.path.isfile(strFileWav):
 			wavfile = wave.open(strFileWav,'r')
 			numCh = wavfile.getnchannels()
-			wav = np.fromstring( wavfile.readframes(-1) , 'Int16' ).reshape(-1, numCh).mean(1)
+			
+			sec_cut = 3000
 			fr = float(wavfile.getframerate())
+			wav = np.fromstring( wavfile.readframes(-1) , 'Int16' )
+			t_end = wav.size / (numCh * fr)
+			wav = wav[:int(numCh * sec_cut * fr)].reshape(-1, numCh).mean(1)
+
+			# wav = np.fromstring( wavfile.readframes(-1) , 'Int16' ).reshape(-1, numCh).mean(1)
+			
+			# sample_rate = 50
+			# wav = wav[:int(wav.size/sample_rate)*sample_rate].reshape(-1, sample_rate).mean(1)
+			# fr = fr/sample_rate
+
 			sigWav = MySignal(x=wav, f = fr)
-			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav':sigWav, 'name':strFilename}
+			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav':sigWav, 'name':strFilename, 'time-end':t_end}
+			print url, "loaded"
 			return mp4
 		return
 
@@ -194,7 +208,7 @@ class Window(QtGui.QDialog):
 		sys.stdout.write('\a')
 		sys.stdout.flush()
 
-	def getTimeShift(self, nChunkSize = 4000000):
+	def getTimeShift(self, nChunkSize = 40000000):
 		# find base signal - longest one
 		lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
 		tMax = max(lsT)
@@ -221,7 +235,7 @@ class Window(QtGui.QDialog):
 			# square is better for highlighting peaks
 			wavBaseChunk = np.pad(wavBaseChunk, (0, nChunkSize-wavBaseChunk.size), 'constant')
 			print 'FFT base', wavBaseChunk.size
-			fftBaseChunk = scipy.fft(wavBaseChunk * wavBaseChunk)
+			fftBaseChunk = scipy.fft(wavBaseChunk * wavBaseChunk * wavBaseChunk * wavBaseChunk)
 			
 			for j in range(numMp4):
 				mp4 = self.lsMp4[j]
@@ -231,7 +245,7 @@ class Window(QtGui.QDialog):
 				wav = np.interp(tBaseChunk, mp4['wav'].getTimeAxis(), mp4['wav'].x, left=0, right=0)
 				wav = np.pad(wav, (0, nChunkSize-wav.size), 'constant')
 				print 'FFT ' + mp4['name'], wav.size
-				fftWav = scipy.fft(wav * wav)
+				fftWav = scipy.fft(wav * wav * wav * wav)
 				
 				# get correlation function based on FFT (conjugate of convolution)
 				corr = np.abs(scipy.ifft(fftBaseChunk * scipy.conj(fftWav)))
@@ -247,21 +261,36 @@ class Window(QtGui.QDialog):
 
 		for j in range(numMp4):
 			self.lsMp4[j]['wav'].shiftSample(sampleShift[j])
+			self.lsMp4[j]['time-end'] += float(sampleShift[j])/self.lsMp4[j]['wav'].f
 		print 'Done'
 
 	def fuse(self):
 		fBase = 48000.0
 		
 		# find base signal - longest one
-		lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
+		# lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
+		lsT = [mp4['time-end'] for mp4 in self.lsMp4]
 		TMax = max(lsT)
 		tBase = np.arange(0,TMax, 1.0/fBase)
 		
 		numMp4 = len(self.lsMp4)
-		wavMean = np.zeros(tBase.size)
-		for i in range(numMp4):
-			wav = np.interp(tBase, self.lsMp4[i]['wav'].getTimeAxis(), self.lsMp4[i]['wav'].x, left=0, right=0)
+		wavMean = np.zeros(tBase.size).astype(int)
+		for mp4 in self.lsMp4:
+			mp4['time-shift'] = mp4['wav'].t0
+			# mp4['time-end'] = mp4['wav'].getTEnd()
+			del mp4['wav']
+
+		for mp4 in self.lsMp4:
+			print mp4['wav-file']
+			wavfile = wave.open(mp4['wav-file'],'r')
+			numCh = wavfile.getnchannels()
+			wav = np.fromstring( wavfile.readframes(-1) , 'Int16' ).reshape(-1, numCh).mean(1)
+			fr = float(wavfile.getframerate())
+			sigWav = MySignal(x=wav, f = fr, t0 = mp4['time-shift'])
+			
+			wav = np.interp(tBase, sigWav.getTimeAxis(), sigWav.x, left=0, right=0)
 			wavMean = wavMean + wav
+			del wav
 		
 		wavMean = (wavMean / numMp4).astype(int)
 		self.dictWav['fuse'] = MySignal(x=wavMean, f = fBase) 
@@ -271,10 +300,7 @@ class Window(QtGui.QDialog):
 		self.canvas.draw()
 		self.bClick = True
 		self.edt.appendPlainText("Fuse Done")
-		for j in range(numMp4):
-			self.lsMp4[j]['time-shift'] = self.lsMp4[j]['wav'].t0
-			self.lsMp4[j]['time-end'] = self.lsMp4[j]['wav'].getTEnd()
-			del self.lsMp4[j]['wav']
+			
 		sys.stdout.write('\a')
 		sys.stdout.flush()	
 
@@ -343,7 +369,7 @@ class Window(QtGui.QDialog):
 	
 	def generate(self):
 		self.generateSegmentedVideos()
-
+		self.edt.appendPlainText("Generate Done")
 
 
 	def generateSegmentedVideos(self):
