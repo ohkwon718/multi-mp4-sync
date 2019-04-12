@@ -7,6 +7,7 @@ import subprocess
 import os
 import wave
 import scipy.io.wavfile
+from pydub import AudioSegment
 
 		
 #%%
@@ -106,34 +107,10 @@ print (f_secs - s_secs) * fps
 
 #%%
 
-rate, data = scipy.io.wavfile.read('wav/181129_{}_full.wav'.format(str(nCamera).zfill(2)))
+rate, data = scipy.io.wavfile.read('wav/181129_{}.wav'.format(str(nCamera).zfill(2)))
 data = data[int(s_secs * rate):int(f_secs * rate),:]
-scipy.io.wavfile.write('wav/181129_{}-019.wav'.format(str(nCamera).zfill(2)),rate,data)
+scipy.io.wavfile.write('result/181129_{}-019.wav'.format(str(nCamera).zfill(2)),rate,data)
 
 
 
 #%%
-
-
-rate, data = scipy.io.wavfile.read('wav/181129_{}-019.wav'.format(str(nCamera).zfill(2)))
-
-print float(data.shape[0]) / rate
-print (f_secs - s_secs) 
-# 5188.96
-
-#%%
-print float(target_nFrame)/25
-print float(data.shape[0])/rate
-
-
-
-#%%
-
-# tmp_name = '181129_{}'
-
-# for i in range(12):
-#     name = tmp_name.format(str(i).zfill(2))
-#     tar = "mp4/"+name+".mp4"
-#     dst = "wav/"+name+"_full.wav"
-#     command = "ffmpeg -n -i " + tar + " " + dst
-#     subprocess.call(command, shell=True)
