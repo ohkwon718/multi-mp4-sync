@@ -55,24 +55,37 @@ class Window(QtGui.QDialog):
 
 		self.btnSync = QtGui.QPushButton('Sync')
 		self.btnSync.clicked.connect(self.sync)
+		self.btnSync.setFixedWidth(100)
 
 		self.btnFuse = QtGui.QPushButton('Fuse')
 		self.btnFuse.clicked.connect(self.fuse)
+		self.btnFuse.setFixedWidth(100)
 
 		self.btnClick = QtGui.QPushButton('Click')
 		self.btnClick.clicked.connect(self.click)
+		self.btnClick.setFixedWidth(100)
 
 		self.btnGenerate = QtGui.QPushButton('Generate')
 		self.btnGenerate.clicked.connect(self.generate)
+		self.btnGenerate.setFixedWidth(100)
 
 		self.cbBlank = QtGui.QCheckBox("Insert Blank")
-
+		
+		self.lbMinutes = QtGui.QLabel("Expected Maximum gap(min) :")
+		self.lbMinutes.setFixedWidth(100)
+		self.tbMinutes = QtGui.QLineEdit("")
+		self.tbMinutes.setFixedWidth(100)	
+		self.tbMinutes.setText('10')
+		
 		layoutControl = QtGui.QGridLayout()
 		layoutControl.addWidget(self.btnSync,0,0,1,1)
 		layoutControl.addWidget(self.btnFuse,1,0,1,1)
 		layoutControl.addWidget(self.btnClick,2,0,1,1)
 		layoutControl.addWidget(self.btnGenerate,3,0,1,1)
-		layoutControl.addWidget(self.cbBlank,4,0,1,1)
+		layoutControl.addWidget(self.cbBlank,0,1,1,1)
+		layoutControl.addWidget(self.lbMinutes,1,1,1,1)
+		layoutControl.addWidget(self.tbMinutes,2,1,1,1)
+		
 		
 		self.edt = QtGui.QPlainTextEdit()
 		self.edt.setDisabled(True)
@@ -202,7 +215,8 @@ class Window(QtGui.QDialog):
 		sys.stdout.write('\a')
 		sys.stdout.flush()
 
-	def getTimeShift(self, nChunkSize = 8000000):
+	def getTimeShift(self):
+		nChunkSize = int(float(self.tbMinutes.text()) * 2 * 60 * 48000)
 		# find base signal - longest one
 		lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
 		tMax = max(lsT)
