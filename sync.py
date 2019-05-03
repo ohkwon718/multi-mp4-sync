@@ -171,13 +171,7 @@ class Window(QtGui.QDialog):
 			wav = np.fromstring( wavfile.readframes(-1) , 'Int16' )
 			t_end = wav.size / (numCh * fr)
 			wav = wav[:int(numCh * sec_cut * fr)].reshape(-1, numCh).mean(1)
-
-			# wav = np.fromstring( wavfile.readframes(-1) , 'Int16' ).reshape(-1, numCh).mean(1)
 			
-			# sample_rate = 50
-			# wav = wav[:int(wav.size/sample_rate)*sample_rate].reshape(-1, sample_rate).mean(1)
-			# fr = fr/sample_rate
-
 			sigWav = MySignal(x=wav, f = fr)
 			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav':sigWav, 'name':strFilename, 'time-end':t_end}
 			print url, "loaded"
@@ -208,7 +202,7 @@ class Window(QtGui.QDialog):
 		sys.stdout.write('\a')
 		sys.stdout.flush()
 
-	def getTimeShift(self, nChunkSize = 40000000):
+	def getTimeShift(self, nChunkSize = 8000000):
 		# find base signal - longest one
 		lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
 		tMax = max(lsT)
@@ -259,10 +253,16 @@ class Window(QtGui.QDialog):
 		# allign minimum shifts to zero
 		sampleShift = idxPeak - min(idxPeak)
 
+		f = open(os.path.join("result","sync.txt"), "a")		
 		for j in range(numMp4):
 			self.lsMp4[j]['wav'].shiftSample(sampleShift[j])
 			self.lsMp4[j]['time-end'] += float(sampleShift[j])/self.lsMp4[j]['wav'].f
+			f.write(self.lsMp4[j]['mp4-file'] + ' ' + str(sampleShift[j]) + '\n')
+		f.close()
+
+
 		print 'Done'
+		
 
 	def fuse(self):
 		fBase = 48000.0
@@ -319,6 +319,7 @@ class Window(QtGui.QDialog):
 				self.lsSplitPosition.append(X[0])
 				self.lsSplitPosition.sort()
 				self.edt.appendPlainText(" ".join(str(x) for x in self.lsSplitPosition))
+		np.savetxt(os.path.join("result","click.txt"), np.array(self.lsSplitPosition), fmt='%f')
 
 
 	def getClickedPoint(self):
@@ -368,76 +369,14 @@ class Window(QtGui.QDialog):
 			stream.write(data)
 	
 	def generate(self):
-		self.generateSegmentedVideos()
-		self.edt.appendPlainText("Generate Done")
-
-
-	def generateSegmentedVideos(self):
-		tEndMax = max([mp4['time-end'] for mp4 in self.lsMp4])
 		for mp4 in self.lsMp4:
 			cap = cv2.VideoCapture(mp4['mp4-file'])
 			fps = cap.get(cv2.CAP_PROP_FPS)
-			w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH ))
-			h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT ))
-			capSize = (w, h)
-			fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-			strFilename, strExtension = os.path.splitext(os.path.basename(mp4['mp4-file']))
-
-			nFrame = 0
-			
-			for j in range(len(self.lsSplitPosition)):
-				t = self.lsSplitPosition[j]
-				nFrameEnd = int(fps * t) - int(fps * mp4['time-shift'])
-				
-				strNum = '-%03d' % j
-				strFilenameOutput = os.path.join("result", strFilename + strNum + ".mp4")
-				print strFilenameOutput,
-				out = cv2.VideoWriter(strFilenameOutput, fourcc, fps, capSize)
-
-				if j == 0 and self.cbBlank.isChecked():
-					print 'black %d frames'%int(fps * mp4['time-shift']),
-					for _ in range(int(fps * mp4['time-shift'])):
-						out.write(np.zeros((h,w,3), np.uint8))
-
-				while(cap.isOpened() and nFrame < nFrameEnd):
-					ret, frame = cap.read()
-					if ret == True:
-						nFrame = nFrame + 1
-						out.write(frame)
-					else:
-						break
-
-				out.release()
-				
-				test = cv2.VideoCapture(strFilenameOutput)
-				print test.get(cv2.CAP_PROP_FRAME_COUNT)
-			
-			j = len(self.lsSplitPosition)
-			strNum = '-%03d' % j
-			strFilenameOutput = os.path.join("result", strFilename + strNum + ".mp4")
-			print strFilenameOutput,
-			out = cv2.VideoWriter(strFilenameOutput, fourcc, fps, capSize)
-			
-			while(cap.isOpened()):
-				ret, frame = cap.read()
-				if ret == True:
-					nFrame = nFrame + 1
-					out.write(frame)
-				else:
-					break
-
-			if self.cbBlank.isChecked():
-				print 'black %d frames'%int(fps * mp4['time-shift']),
-				for _ in range( int(np.ceil(fps * tEndMax)) - ( nFrame + int(fps * mp4['time-shift']) ) ):
-					out.write(np.zeros((h,w,3), np.uint8))
-			out.release()
-			test = cv2.VideoCapture(strFilenameOutput)
-			print test.get(cv2.CAP_PROP_FRAME_COUNT)
+			strFilename, _ = os.path.splitext(os.path.basename(mp4['mp4-file']))
 			cap.release()
-
-		sys.stdout.write('\a')
-		sys.stdout.flush()
-				
+			ls_nFrameEnd = [int(fps * t) - int(fps * mp4['time-shift']) for t in self.lsSplitPosition]
+			np.savetxt(os.path.join("result", strFilename + "_frames.txt"), np.array(ls_nFrameEnd), fmt='%d')
+		self.edt.appendPlainText("Done")
 
 
 
