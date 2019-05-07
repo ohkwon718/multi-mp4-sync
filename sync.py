@@ -5,6 +5,7 @@ import sys
 import os
 import copy
 import subprocess
+import bisect
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
@@ -75,7 +76,7 @@ class Window(QtGui.QDialog):
 		self.lbMinutes.setFixedWidth(100)
 		self.tbMinutes = QtGui.QLineEdit("")
 		self.tbMinutes.setFixedWidth(100)	
-		self.tbMinutes.setText('10')
+		self.tbMinutes.setText('2')
 		
 		layoutControl = QtGui.QGridLayout()
 		layoutControl.addWidget(self.btnSync,0,0,1,1)
@@ -137,11 +138,22 @@ class Window(QtGui.QDialog):
 	def dropEvent(self, event):
 		lsUrl = [unicode(u.toLocalFile()) for u in event.mimeData().urls()]
 		for url in lsUrl:
-			mp4 = self.loadMp4(url)
-			if mp4:
-				self.lsMp4.append(mp4)
-				item = QtGui.QListWidgetItem(mp4['name'])
-				self.listFile .addItem(item)
+			_, ext = os.path.splitext(url)
+			if ext.lower() == ".txt":
+				txt = np.genfromtxt(url,dtype='str')
+				for url_txt, t0 in txt:
+					mp4 = self.loadMp4(url_txt, t0=float(t0))
+					if mp4:
+						self.lsMp4.append(mp4)
+						item = QtGui.QListWidgetItem(mp4['name'])
+						self.listFile.addItem(item)
+
+			elif ext.lower() == ".mp4":
+				mp4 = self.loadMp4(url)
+				if mp4:
+					self.lsMp4.append(mp4)
+					item = QtGui.QListWidgetItem(mp4['name'])
+					self.listFile.addItem(item)
 		self.keyPlot = 'wav'	
 		self.plot()
 
@@ -152,7 +164,6 @@ class Window(QtGui.QDialog):
 		dlg.setDirectory(os.getcwd())
 		dlg.setFilter("Text files (*.mp4)")
 		
-
 		if dlg.exec_():
 			lsUrl = dlg.selectedFiles()
 			for url in lsUrl:
@@ -164,7 +175,7 @@ class Window(QtGui.QDialog):
 				self.keyPlot = 'wav'	
 				self.plot()
 
-	def loadMp4(self, url):
+	def loadMp4(self, url, sec_cut = 3000, t0 = 0):
 		if url in [mp4['mp4-file'] for mp4 in self.lsMp4]:
 			return
 		strBase = os.path.basename(url)
@@ -174,22 +185,27 @@ class Window(QtGui.QDialog):
 		strFileWav = os.path.join("wav", strFilename + ".wav")
 		command = "ffmpeg -n -i " + url + " -ac 1 -vn "+ strFileWav
 		
-		# subprocess.call(command, shell=True)
+		if not os.path.exists(strFileWav):
+			subprocess.call(command, shell=True)
+
 		if os.path.isfile(strFileWav):
 			wavfile = wave.open(strFileWav,'r')
 			numCh = wavfile.getnchannels()
 			
-			sec_cut = 3000
 			fr = float(wavfile.getframerate())
 			wav = np.fromstring( wavfile.readframes(-1) , 'Int16' )
 			t_end = wav.size / (numCh * fr)
+
+			pad = int(t0 * (numCh * fr))
+			wav = np.pad(wav, (pad, 0), 'constant')
 			wav = wav[:int(numCh * sec_cut * fr)].reshape(-1, numCh).mean(1)
-			
 			sigWav = MySignal(x=wav, f = fr)
-			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav':sigWav, 'name':strFilename, 'time-end':t_end}
+			
+			mp4 = {'mp4-file':url, 'wav-file':strFileWav, 'wav':sigWav, 'name':strFilename, 
+					'time-end' : t_end, 'time-shift' : t0}
 			print url, "loaded"
 			return mp4
-		return
+		
 
 	def plot(self):
 		key = self.keyPlot
@@ -199,7 +215,7 @@ class Window(QtGui.QDialog):
 
 		lsLegend = []
 		for mp4 in self.lsMp4:
-			step = 100
+			step = 1000
 			legend, = self.ax.plot(mp4[key].getTimeAxis()[::step], mp4[key].x[::step], label=mp4['name'])
 			lsLegend.append(legend)
 		
@@ -207,7 +223,7 @@ class Window(QtGui.QDialog):
 		self.ax.set_xlabel('t(sec)')
 		self.canvas.draw()
 
-	def sync(self):
+	def sync(self):	
 		self.getTimeShift()
 		self.keyPlot = 'wav'
 		self.plot()
@@ -216,7 +232,10 @@ class Window(QtGui.QDialog):
 		sys.stdout.flush()
 
 	def getTimeShift(self):
-		nChunkSize = int(float(self.tbMinutes.text()) * 2 * 60 * 48000)
+		nChunkSize = int(float(self.tbMinutes.text()) * 4 * 60 * 48000)
+		ls2pow = [2**x for x in range(50)]
+		nChunkSize = ls2pow[bisect.bisect(ls2pow, nChunkSize)]
+
 		# find base signal - longest one
 		lsT = [mp4['wav'].getTEnd() for mp4 in self.lsMp4]
 		tMax = max(lsT)
@@ -271,7 +290,8 @@ class Window(QtGui.QDialog):
 		for j in range(numMp4):
 			self.lsMp4[j]['wav'].shiftSample(sampleShift[j])
 			self.lsMp4[j]['time-end'] += float(sampleShift[j])/self.lsMp4[j]['wav'].f
-			f.write(self.lsMp4[j]['mp4-file'] + ' ' + str(sampleShift[j]) + '\n')
+			self.lsMp4[j]['time-shift'] += self.lsMp4[j]['wav'].t0
+			f.write(self.lsMp4[j]['mp4-file'] + ' ' + str(self.lsMp4[j]['time-shift']) + '\n')
 		f.close()
 
 
@@ -290,8 +310,6 @@ class Window(QtGui.QDialog):
 		numMp4 = len(self.lsMp4)
 		wavMean = np.zeros(tBase.size).astype(int)
 		for mp4 in self.lsMp4:
-			mp4['time-shift'] = mp4['wav'].t0
-			# mp4['time-end'] = mp4['wav'].getTEnd()
 			del mp4['wav']
 
 		for mp4 in self.lsMp4:
@@ -392,6 +410,8 @@ class Window(QtGui.QDialog):
 			np.savetxt(os.path.join("result", strFilename + "_frames.txt"), np.array(ls_nFrameEnd), fmt='%d')
 		self.edt.appendPlainText("Done")
 
+		sys.stdout.write('\a')
+		sys.stdout.flush()	
 
 
 
